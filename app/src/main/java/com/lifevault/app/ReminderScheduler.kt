@@ -49,6 +49,8 @@ object ReminderScheduler {
 
     fun cancel(context: Context, reminderId: Long) {
         WorkManager.getInstance(context).cancelAllWorkByTag(tag(reminderId))
+        // Cancel the original single-alert work name used by earlier app builds.
+        WorkManager.getInstance(context).cancelUniqueWork("reminder_$reminderId")
     }
 
     private fun tag(id: Long) = "lifevault_reminder_$id"
