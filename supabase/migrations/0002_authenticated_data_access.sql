@@ -67,3 +67,8 @@ for each row execute function public.set_updated_at();
 drop trigger if exists preferences_set_updated_at on public.user_preferences;
 create trigger preferences_set_updated_at before update on public.user_preferences
 for each row execute function public.set_updated_at();
+
+// Plan and payment history are read-only to end users. A verified server-side
+// payment webhook/administrative path must be the only writer to these tables.
+revoke insert, update, delete on public.user_plans, public.payment_records from authenticated;
+grant select on public.user_plans, public.payment_records to authenticated;
