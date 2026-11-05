@@ -129,6 +129,7 @@ private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String, Long, Int) -> Un
     var selected by remember { mutableStateOf(Destination.Home) }
     val reminders by dao.observeReminders().collectAsStateWithLifecycle(initialValue = emptyList())
     val transactions by dao.observeTransactions().collectAsStateWithLifecycle(initialValue = emptyList())
+    val documents by dao.observeDocuments().collectAsStateWithLifecycle(initialValue = emptyList())
     Scaffold(containerColor = Canvas, bottomBar = {
         NavigationBar(containerColor = Color.White) {
             val items = listOf(Destination.Home to Icons.Default.Home, Destination.Vault to Icons.Default.Description, Destination.Reminders to Icons.Default.Notifications, Destination.Money to Icons.Default.AccountBalanceWallet, Destination.HomeCare to Icons.Default.HomeRepairService)
@@ -136,7 +137,7 @@ private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String, Long, Int) -> Un
         }
     }) { padding ->
         when (selected) {
-            Destination.Home -> HomeScreen(padding, reminders, transactions, dao, onCompleteReminder, onSearch = { selected = Destination.Search }, onSettings = { selected = Destination.Settings }, onNavigate = { selected = it })
+            Destination.Home -> HomeScreen(padding, reminders, transactions, documents, onCompleteReminder, onSearch = { selected = Destination.Search }, onSettings = { selected = Destination.Settings }, onNavigate = { selected = it })
             Destination.Vault -> VaultScreen(padding, dao)
             Destination.Reminders -> RemindersScreen(padding, reminders, onAddReminder, onCompleteReminder)
             Destination.Money -> MoneyScreen(padding, transactions, dao, onAddTransaction)
@@ -296,7 +297,7 @@ private fun loadDocumentPreview(context: Context, uri: Uri, mimeType: String): a
     }
 }
 
-@Composable private fun HomeScreen(padding: PaddingValues, reminders: List<ReminderEntity>, transactions: List<TransactionEntity>, onComplete: (Long) -> Unit, onSearch: () -> Unit, onSettings: () -> Unit) {
+@Composable private fun HomeScreen(padding: PaddingValues, reminders: List<ReminderEntity>, transactions: List<TransactionEntity>, documents: List<DocumentEntity>, onComplete: (Long) -> Unit, onSearch: () -> Unit, onSettings: () -> Unit, onNavigate: (Destination) -> Unit) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("lifevault_settings", android.content.Context.MODE_PRIVATE) }
     var showMetrics by remember { mutableStateOf(prefs.getBoolean("dashboard_show_metrics", true)) }
