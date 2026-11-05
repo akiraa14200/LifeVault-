@@ -180,7 +180,7 @@ class MainActivity : FragmentActivity() {
     }
 }
 
-private enum class Destination(val label: String) { Home("Home"), Vault("Vault"), Reminders("Reminders"), Money("Money"), HomeCare("Home care"), Search("Search"), Settings("Settings"), About("About"), Guide("Guide"), Terms("Terms"), Privacy("Privacy") }
+private enum class Destination(val label: String) { Home("Home"), Vault("Vault"), Reminders("Reminders"), Money("Money"), HomeCare("Home care"), Planner("Planner"), Search("Search"), Settings("Settings"), About("About"), Guide("Guide"), Terms("Terms"), Privacy("Privacy") }
 
 @Composable
 private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String, Long, Int) -> Unit, onCompleteReminder: (Long) -> Unit, onAddTransaction: (String, Double, Boolean, String) -> Unit, onBiometricLockChange: (Boolean) -> Boolean) {
@@ -200,6 +200,7 @@ private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String, Long, Int) -> Un
             Destination.Reminders -> RemindersScreen(padding, reminders, onAddReminder, onCompleteReminder)
             Destination.Money -> MoneyScreen(padding, transactions, dao, onAddTransaction)
             Destination.HomeCare -> FeatureScreen(padding, "Home care", "Appliances, service history and maintenance.", Icons.Default.HomeRepairService, "Appliance records and maintenance schedules are planned next.")
+            Destination.Planner -> PlannerScreen(padding, dao)
             Destination.Settings -> SettingsScreen(padding, dao, onNavigate = { selected = it }, onBiometricLockChange = onBiometricLockChange)
             Destination.Search -> SearchScreen(padding, dao, reminders, transactions)
             Destination.About -> InfoScreen(padding, "About LifeVault", "A calm space for the important parts of everyday life.", listOf("LifeVault helps organise reminders, documents and simple money records.", "This native Android app stores its current records locally on your device.", "Some features are still being developed. The app does not provide financial, legal or medical advice."), onBack = { selected = Destination.Settings })
@@ -381,6 +382,7 @@ private fun loadDocumentPreview(context: Context, uri: Uri, mimeType: String): a
             QuickAction("Reminder", Icons.Default.Notifications, Modifier.weight(1f)) { onNavigate(Destination.Reminders) }
             QuickAction("Add expense", Icons.Default.AddCard, Modifier.weight(1f)) { onNavigate(Destination.Money) }
             QuickAction("Open vault", Icons.Default.Folder, Modifier.weight(1f)) { onNavigate(Destination.Vault) }
+            QuickAction("Planner", Icons.Default.EventNote, Modifier.weight(1f)) { onNavigate(Destination.Planner) }
         } }
         if (showSpending) item { Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Forest)) { Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) { Text("This month’s spending", color = Color.White.copy(alpha = .72f)); Text(formatRupees(monthExpenses), color = Color.White, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold); Text("Income ${formatRupees(monthIncome)}  •  Net ${formatRupees(monthIncome - monthExpenses)}", color = Color.White.copy(alpha = .78f), style = MaterialTheme.typography.bodySmall); Text("Based on entries recorded this month", color = Color.White.copy(alpha = .72f), style = MaterialTheme.typography.bodySmall) } } }
         if (showReminders) {
