@@ -11,8 +11,16 @@ object ReminderScheduler {
     private val alertOffsetsHours = listOf(24, 5, 4, 3, 2, 1, 0)
 
     fun schedule(context: Context, reminderId: Long, title: String, dueAt: Long, repeatDays: Int) {
+        scheduleInternal(context, reminderId, title, dueAt, repeatDays, cancelExisting = true)
+    }
+
+    fun scheduleNextCycle(context: Context, reminderId: Long, title: String, dueAt: Long, repeatDays: Int) {
+        scheduleInternal(context, reminderId, title, dueAt, repeatDays, cancelExisting = false)
+    }
+
+    private fun scheduleInternal(context: Context, reminderId: Long, title: String, dueAt: Long, repeatDays: Int, cancelExisting: Boolean) {
         val workManager = WorkManager.getInstance(context)
-        cancel(context, reminderId)
+        if (cancelExisting) cancel(context, reminderId)
         val now = System.currentTimeMillis()
 
         alertOffsetsHours.forEach { offsetHours ->
@@ -21,15 +29,13 @@ object ReminderScheduler {
 
             val request = OneTimeWorkRequestBuilder<ReminderWorker>()
                 .setInitialDelay(alertAt - now, TimeUnit.MILLISECONDS)
-                .setInputData(
-                    workDataOf(
-                        "title" to title,
-                        "reminder_id" to reminderId,
-                        "due_at" to dueAt,
-                        "alert_offset_hours" to offsetHours,
-                        "repeat_days" to repeatDays
-                    )
-                )
+                .setInputData(workDataOf(
+                    "title" to title,
+                    "reminder_id" to reminderId,
+                    "due_at" to dueAt,
+                    "alert_offset_hours" to offsetHours,
+                    "repeat_days" to repeatDays
+                ))
                 .addTag(tag(reminderId))
                 .build()
 
