@@ -7,7 +7,12 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.work.CoroutineWorker
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.ExistingWorkPolicy
+import androidx.work.workDataOf
 import androidx.work.WorkerParameters
+import java.util.concurrent.TimeUnit
 
 class ReminderWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
@@ -30,6 +35,18 @@ class ReminderWorker(context: Context, params: WorkerParameters) : CoroutineWork
             .build()
         if (Build.VERSION.SDK_INT < 33 || applicationContext.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
             NotificationManagerCompat.from(applicationContext).notify(reminderId, notification)
+        }
+        val repeatDays = inputData.getInt("repeat_days", 0)
+        if (repeatDays > 0 && repeatDays <= 365) {
+            val nextRequest = OneTimeWorkRequestBuilder<ReminderWorker>()
+                .setInitialDelay(repeatDays.toLong(), TimeUnit.DAYS)
+                .setInputData(workDataOf("title" to title, "reminder_id" to reminderId.toLong(), "repeat_days" to repeatDays))
+                .build()
+            WorkManager.getInstance(applicationContext).enqueueUniqueWork(
+                "reminder_${inputData.getLong("reminder_id", reminderId.toLong())}",
+                ExistingWorkPolicy.APPEND_OR_REPLACE,
+                nextRequest
+            )
         }
         return Result.success()
     }
