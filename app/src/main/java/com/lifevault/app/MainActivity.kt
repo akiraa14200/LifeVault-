@@ -574,173 +574,120 @@ private fun loadDocumentPreview(context: Context, uri: Uri, mimeType: String): a
 
 @Composable
 private fun LiquidOverviewCard(
-    monthLabel: String,
-    income: Long,
-    expenses: Long,
-    net: Long,
-    topCategoryText: String,
-    comparisonText: String
+    monthLabel: String, income: Long, expenses: Long, net: Long,
+    topCategoryText: String, comparisonText: String
 ) {
     val shape = RoundedCornerShape(24.dp)
     val context = LocalContext.current
-    var tiltX by remember { mutableFloatStateOf(0f) }
+    var gravityX by remember { mutableFloatStateOf(0f) }
+    var gravityY by remember { mutableFloatStateOf(0f) }
     DisposableEffect(context) {
         val manager = context.getSystemService(SENSOR_SERVICE) as SensorManager
-        // Prefer the gravity sensor (already filtered); fall back to the accelerometer.
-        val tiltSensor = manager.getDefaultSensor(Sensor.TYPE_GRAVITY)
-            ?: manager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        val sensor = manager.getDefaultSensor(Sensor.TYPE_GRAVITY) ?: manager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         val listener = object : SensorEventListener {
             override fun onSensorChanged(event: SensorEvent) {
-                // In portrait, Y is the up/down gravity component and X is left/right.
-                // Convert the gravity vector to an angle so small tilts are still noticeable.
-                val angle = kotlin.math.atan2(
-                    event.values[0].toDouble(),
-                    kotlin.math.abs(event.values[1]).coerceAtLeast(0.5f).toDouble()
-                ).toFloat()
-                val target = (angle / Math.toRadians(32.0).toFloat()).coerceIn(-1f, 1f)
-                tiltX = (tiltX * 0.72f + target * 0.28f).coerceIn(-1f, 1f)
+                if (event.values.size < 3) return
+                val x = (event.values[0] / SensorManager.GRAVITY_EARTH).coerceIn(-1f, 1f)
+                val y = (-event.values[1] / SensorManager.GRAVITY_EARTH).coerceIn(-1f, 1f)
+                gravityX = gravityX * 0.78f + x * 0.22f
+                gravityY = gravityY * 0.78f + y * 0.22f
             }
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
         }
-        if (tiltSensor != null) {
-            manager.registerListener(listener, tiltSensor, SensorManager.SENSOR_DELAY_GAME)
-        }
+        if (sensor != null) manager.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_GAME)
         onDispose { manager.unregisterListener(listener) }
     }
     val remainingRatio = if (income > 0L) (net.toFloat() / income.toFloat()).coerceIn(0f, 1f) else 0f
-    val animatedLevel by animateFloatAsState(
-        targetValue = remainingRatio,
-        animationSpec = tween(durationMillis = 1100, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-        label = "monthly-water-level"
-    )
+    val animatedLevel by animateFloatAsState(remainingRatio, animationSpec = tween(1100, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "monthly-water-level")
     val waves = rememberInfiniteTransition(label = "monthly-water-waves")
-    val phase by waves.animateFloat(
-        initialValue = 0f,
-        targetValue = (Math.PI * 2.0).toFloat(),
-        animationSpec = infiniteRepeatable(tween(5200, easing = LinearEasing), repeatMode = RepeatMode.Restart),
-        label = "wave-phase"
-    )
-    val glow by waves.animateFloat(
-        initialValue = 0.35f,
-        targetValue = 0.7f,
-        animationSpec = infiniteRepeatable(tween(2400, easing = LinearEasing), repeatMode = RepeatMode.Reverse),
-        label = "wave-glow"
-    )
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = shape,
-        colors = CardDefaults.cardColors(containerColor = Forest)
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(shape)
-                .background(Forest)
-        ) {
+    val phase by waves.animateFloat(0f, (Math.PI * 2.0).toFloat(), infiniteRepeatable(tween(5200, easing = LinearEasing)), label = "wave-phase")
+    val glow by waves.animateFloat(0.35f, 0.7f, infiniteRepeatable(tween(2400, easing = LinearEasing), repeatMode = RepeatMode.Reverse), label = "wave-glow")
+    Card(Modifier.fillMaxWidth(), shape = shape, colors = CardDefaults.cardColors(containerColor = Forest)) {
+        Box(Modifier.fillMaxWidth().clip(shape).background(Forest)) {
             ComposeCanvas(Modifier.matchParentSize()) {
                 val width = size.width
                 val height = size.height
-                val amplitude = (height * 0.025f).coerceAtLeast(5f)
-                val baseY = height * (1f - animatedLevel)
-                fun wavePath(offset: Float, verticalOffset: Float): Path {
-                    return Path().apply {
-                        val startY = baseY + verticalOffset + sin(offset.toDouble()).toFloat() * amplitude
-                        moveTo(0f, startY)
-                        var x = 0f
-                        while (x <= width) {
-                            val y = baseY + verticalOffset + tiltX * height * 0.14f * (x / width - 0.5f) + sin((x / width * Math.PI * 2.0 + offset + tiltX * 1.15f).toDouble()).toFloat() * amplitude
-                            lineTo(x, y)
-                            x += 5f
+                if (width <= 0f || height <= 0f || animatedLevel <= 0f) return@ComposeCanvas
+                // Two-axis gravity controls the low edge. Reversing the phone reverses the vector.
+                val magnitude = kotlin.math.sqrt(gravityX * gravityX + gravityY * gravityY)
+                val downX = if (magnitude > 0.025f) gravityX / magnitude else 0f
+                val downY = if (magnitude > 0.025f) gravityY / magnitude else 1f
+                val tangentX = -downY
+                val tangentY = downX
+                val halfExtent = kotlin.math.abs(downX) * width / 2f + kotlin.math.abs(downY) * height / 2f
+                val threshold = halfExtent * (1f - 2f * animatedLevel)
+                val amplitude = (height * 0.022f).coerceAtLeast(4f) * (0.35f + magnitude.coerceIn(0f, 1f) * 0.9f)
+                val centerX = width / 2f
+                val centerY = height / 2f
+                fun signedDistance(x: Float, y: Float, phaseOffset: Float): Float {
+                    val rx = x - centerX
+                    val ry = y - centerY
+                    val depth = rx * downX + ry * downY
+                    val along = rx * tangentX + ry * tangentY
+                    val ripple = sin((along / width * Math.PI * 2.0 + phase + phaseOffset).toDouble()).toFloat() * amplitude
+                    return depth - (threshold + ripple)
+                }
+                fun waterPath(phaseOffset: Float): Path {
+                    val polygon = listOf(
+                        androidx.compose.ui.geometry.Offset(0f, 0f),
+                        androidx.compose.ui.geometry.Offset(width, 0f),
+                        androidx.compose.ui.geometry.Offset(width, height),
+                        androidx.compose.ui.geometry.Offset(0f, height)
+                    )
+                    val output = mutableListOf<androidx.compose.ui.geometry.Offset>()
+                    for (i in polygon.indices) {
+                        val a = polygon[i]
+                        val b = polygon[(i + 1) % polygon.size]
+                        val aInside = signedDistance(a.x, a.y, phaseOffset) >= 0f
+                        val bInside = signedDistance(b.x, b.y, phaseOffset) >= 0f
+                        if (aInside && bInside) output.add(b)
+                        else if (aInside != bInside) {
+                            var low = 0f
+                            var high = 1f
+                            repeat(18) {
+                                val mid = (low + high) / 2f
+                                val mx = a.x + (b.x - a.x) * mid
+                                val my = a.y + (b.y - a.y) * mid
+                                if ((signedDistance(mx, my, phaseOffset) >= 0f) == aInside) low = mid else high = mid
+                            }
+                            val t = (low + high) / 2f
+                            output.add(androidx.compose.ui.geometry.Offset(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t))
+                            if (bInside) output.add(b)
                         }
-                        lineTo(width, height)
-                        lineTo(0f, height)
+                    }
+                    if (output.size < 3) return Path()
+                    return Path().apply {
+                        moveTo(output.first().x, output.first().y)
+                        output.drop(1).forEach { lineTo(it.x, it.y) }
                         close()
                     }
                 }
-                val waterBrush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xAA63E6B1),
-                        Color(0xBB20B985),
-                        Color(0xDD087653),
-                        Color(0xEE07523E)
-                    ),
-                    startY = (baseY - amplitude * 2f).coerceAtLeast(0f),
-                    endY = height
-                )
-                drawPath(wavePath(phase + 1.1f, amplitude * 0.55f), waterBrush)
-                drawPath(
-                    wavePath(phase + 3.0f, 0f),
-                    Brush.verticalGradient(
-                        listOf(Color(0x886FFFD0), Color(0x5533D6A0), Color(0x2200A878)),
-                        startY = (baseY - amplitude).coerceAtLeast(0f),
-                        endY = height
-                    )
-                )
-                val crest = Path().apply {
-                    var x = 0f
-                    while (x <= width) {
-                        val y = baseY + tiltX * height * 0.055f * (x / width - 0.5f) + sin((x / width * Math.PI * 2.0 + phase + tiltX * 0.7f).toDouble()).toFloat() * amplitude
-                        if (x == 0f) moveTo(x, y) else lineTo(x, y)
-                        x += 5f
-                    }
+                drawPath(waterPath(0f), Brush.verticalGradient(listOf(Color(0xAA63E6B1), Color(0xBB20B985), Color(0xDD087653), Color(0xEE07523E)), 0f, height))
+                drawPath(waterPath(1.25f), Brush.verticalGradient(listOf(Color(0x226FFFD0), Color(0x3333D6A0), Color(0x1100A878)), 0f, height))
+                val crest = Path()
+                val steps = 100
+                val extent = halfExtent * 1.5f
+                for (i in 0..steps) {
+                    val along = -extent + (2f * extent * i / steps)
+                    val depth = threshold + sin((along / width * Math.PI * 2.0 + phase).toDouble()).toFloat() * amplitude
+                    val x = centerX + downX * depth + tangentX * along
+                    val y = centerY + downY * depth + tangentY * along
+                    if (i == 0) crest.moveTo(x, y) else crest.lineTo(x, y)
                 }
-                drawPath(
-                    crest,
-                    color = Color(0xCC9CFFDA).copy(alpha = glow),
-                    style = Stroke(width = 2.2.dp.toPx())
-                )
-                // A restrained mint highlight gives the liquid a soft glow without obscuring figures.
-                drawCircle(
-                    color = Color(0x333DFFB4).copy(alpha = glow),
-                    radius = 12.dp.toPx(),
-                    center = androidx.compose.ui.geometry.Offset(width * 0.82f, (baseY + 22.dp.toPx()).coerceAtMost(height))
-                )
+                drawPath(crest, color = Color(0xCC9CFFDA).copy(alpha = glow), style = Stroke(width = 2.2.dp.toPx()))
+                drawCircle(Color(0x333DFFB4).copy(alpha = glow), 12.dp.toPx(), androidx.compose.ui.geometry.Offset((centerX + gravityX * width * 0.22f).coerceIn(0f, width), (centerY + gravityY * height * 0.22f).coerceIn(0f, height)))
             }
-
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text(monthLabel, color = Color.White.copy(alpha = .78f), style = MaterialTheme.typography.labelLarge)
-                Text("Monthly overview", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Income", color = Color.White.copy(alpha = .82f), style = MaterialTheme.typography.labelSmall)
-                        Text(formatRupees(income), color = Color.White, fontWeight = FontWeight.SemiBold)
-                    }
-                    Column(Modifier.weight(1f)) {
-                        Text("Expenses", color = Color.White.copy(alpha = .82f), style = MaterialTheme.typography.labelSmall)
-                        Text(formatRupees(expenses), color = Color.White, fontWeight = FontWeight.SemiBold)
-                    }
-                    Column(Modifier.weight(1f)) {
-                        Text("Net", color = Color.White.copy(alpha = .82f), style = MaterialTheme.typography.labelSmall)
-                        Text(formatRupees(net), color = Color.White, fontWeight = FontWeight.SemiBold)
-                    }
-                }
-                HorizontalDivider(color = Color.White.copy(alpha = .24f))
-                Text(topCategoryText, color = Color.White, style = MaterialTheme.typography.bodySmall)
-                Text(comparisonText, color = Color.White.copy(alpha = .86f), style = MaterialTheme.typography.bodySmall)
-                Spacer(Modifier.height(3.dp))
-                val status = when {
-                    income <= 0L -> "Add income to activate the water level"
-                    net < 0L -> "Income exceeded by ${formatRupees(-net)}"
-                    else -> "${(remainingRatio * 100).toInt()}% of income remaining"
-                }
-                Text(
-                    status,
-                    color = Color.White,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier
-                        .background(Color(0x44002F24), RoundedCornerShape(50))
-                        .padding(horizontal = 12.dp, vertical = 7.dp)
-                )
+            Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text("Monthly overview", color = Color.White.copy(alpha = .72f))
+                Text(monthLabel, color = Color.White.copy(alpha = .72f), style = MaterialTheme.typography.bodySmall)
+                Text(formatRupees(net), color = Color.White, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold)
+                Text("Income " + formatRupees(income) + "  •  Expenses " + formatRupees(expenses), color = Color.White, style = MaterialTheme.typography.bodySmall)
+                Text(topCategoryText, color = Color.White.copy(alpha = .9f), style = MaterialTheme.typography.bodySmall)
+                Text(comparisonText, color = Color.White.copy(alpha = .78f), style = MaterialTheme.typography.bodySmall)
             }
         }
     }
 }
-
 @Composable private fun FeatureScreen(padding: PaddingValues, title: String, subtitle: String, icon: androidx.compose.ui.graphics.vector.ImageVector, note: String) {
     Column(Modifier.fillMaxSize().padding(padding).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) { Header("LifeVault", title, subtitle); Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(22.dp)) { Column(Modifier.fillMaxWidth().padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally) { Icon(icon, null, tint = Forest, modifier = Modifier.size(42.dp)); Spacer(Modifier.height(12.dp)); Text(note, color = Muted, style = MaterialTheme.typography.bodyMedium) } } }
 }
