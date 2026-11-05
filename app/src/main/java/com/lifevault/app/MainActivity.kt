@@ -78,10 +78,10 @@ class MainActivity : FragmentActivity() {
                     onCompleteReminder = { id -> lifecycleScope.launch { dao.completeReminder(id); WorkManager.getInstance(this@MainActivity).cancelUniqueWork("reminder_$id"); LifeVaultWidgetProvider.refresh(this@MainActivity) } },
                     onAddTransaction = { title, amount, income, category -> lifecycleScope.launch { dao.addTransaction(TransactionEntity(title = title, amountPaise = (amount * 100).toLong(), isIncome = income, category = category)); LifeVaultWidgetProvider.refresh(this@MainActivity) } },
                     onBiometricLockChange = { enabled ->
-                        val authenticators = BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                        val authenticators = BiometricManager.Authenticators.BIOMETRIC_WEAK
                         val available = BiometricManager.from(this).canAuthenticate(authenticators) == BiometricManager.BIOMETRIC_SUCCESS
                         if (enabled && !available) {
-                            android.widget.Toast.makeText(this, "Set up a fingerprint, face unlock or screen lock first.", android.widget.Toast.LENGTH_LONG).show()
+                            android.widget.Toast.makeText(this, "Enroll a fingerprint or face unlock in Android settings first.", android.widget.Toast.LENGTH_LONG).show()
                             false
                         } else {
                             lockPrefs.edit().putBoolean("biometric_lock_enabled", enabled).apply()
@@ -90,11 +90,11 @@ class MainActivity : FragmentActivity() {
                         }
                     }
                 ) else BiometricUnlockScreen(onUnlock = {
-                    val authenticators = BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                    val authenticators = BiometricManager.Authenticators.BIOMETRIC_WEAK
                     val prompt = BiometricPrompt(this, ContextCompat.getMainExecutor(this), object : BiometricPrompt.AuthenticationCallback() {
                         override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) { isUnlocked = true }
                     })
-                    val info = BiometricPrompt.PromptInfo.Builder().setTitle("Unlock LifeVault").setSubtitle("Verify to open your private space").setAllowedAuthenticators(authenticators).build()
+                    val info = BiometricPrompt.PromptInfo.Builder().setTitle("Unlock LifeVault").setSubtitle("Verify to open your private space").setAllowedAuthenticators(authenticators).setNegativeButtonText("Cancel").build()
                     prompt.authenticate(info)
                 })
             }
@@ -499,7 +499,7 @@ private fun SettingsScreen(padding: PaddingValues, dao: VaultDao, onNavigate: (D
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("Biometric app lock", fontWeight = FontWeight.Medium)
-                            Text("Require fingerprint, face or device PIN when opening LifeVault", color = Muted, style = MaterialTheme.typography.bodySmall)
+                            Text("Require fingerprint or face verification when opening LifeVault", color = Muted, style = MaterialTheme.typography.bodySmall)
                         }
                         Switch(checked = biometricLock, onCheckedChange = { enabled -> if (onBiometricLockChange(enabled)) biometricLock = enabled })
                     }
