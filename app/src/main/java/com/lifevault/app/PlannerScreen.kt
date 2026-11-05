@@ -1,6 +1,8 @@
 package com.lifevault.app
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.overscroll
+import androidx.compose.foundation.rememberOverscrollEffect
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -32,7 +34,7 @@ internal fun PlannerScreen(padding: PaddingValues, dao: VaultDao) {
     var showHabit by remember { mutableStateOf(false) }
     val today = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()) }
     val completed = tasks.count { it.isDone }
-    LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(Modifier.fillMaxSize().padding(padding).overscroll(rememberOverscrollEffect()), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { PlannerHeader() }
         item {
             Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF234C3D)), shape = RoundedCornerShape(20.dp)) {
