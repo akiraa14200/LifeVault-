@@ -212,7 +212,7 @@ private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String, Int) -> Unit, on
             OutlinedTextField(title, { title = it }, label = { Text("Reminder title") }, singleLine = true)
             Text("Repeat", style = MaterialTheme.typography.labelMedium)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf(0 to "Never", 1 to "Daily", 7 to "Weekly", 30 to "Monthly").forEach { (days, label) ->
+                listOf(0 to "Never", 1 to "Daily", 7 to "Weekly", 30 to "Every 30d").forEach { (days, label) ->
                     FilterChip(selected = repeatDays == days, onClick = { repeatDays = days }, label = { Text(label) })
                 }
             }
