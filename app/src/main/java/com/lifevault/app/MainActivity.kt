@@ -116,7 +116,7 @@ class MainActivity : FragmentActivity() {
 private enum class Destination(val label: String) { Home("Home"), Vault("Vault"), Reminders("Reminders"), Money("Money"), HomeCare("Home care"), Search("Search"), Settings("Settings"), About("About"), Guide("Guide"), Terms("Terms"), Privacy("Privacy") }
 
 @Composable
-private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String, Int) -> Unit, onCompleteReminder: (Long) -> Unit, onAddTransaction: (String, Double, Boolean, String) -> Unit, onBiometricLockChange: (Boolean) -> Boolean) {
+private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String, Long, Int) -> Unit, onCompleteReminder: (Long) -> Unit, onAddTransaction: (String, Double, Boolean, String) -> Unit, onBiometricLockChange: (Boolean) -> Boolean) {
     var selected by remember { mutableStateOf(Destination.Home) }
     val reminders by dao.observeReminders().collectAsStateWithLifecycle(initialValue = emptyList())
     val transactions by dao.observeTransactions().collectAsStateWithLifecycle(initialValue = emptyList())
@@ -347,8 +347,7 @@ private fun BiometricUnlockScreen(onUnlock: () -> Unit) {
 }
 
 @Composable private fun MoneyScreen(padding: PaddingValues, transactions: List<TransactionEntity>, dao: VaultDao, onAdd: (String, Double, Boolean, String) -> Unit) {
-    val budgets by dao.observeBudgets().collectAsStateWithLifecycle(initialValue = emptyList())
-    val categories = listOf("Food", "Transport", "Bills", "Shopping", "Health", "Education", "Entertainment", "Home", "Other")
+    val budgets by dao.observeBudgets().collectAsStateWithLifecycle(initialValue = emptyList())    val categories = listOf("Food", "Transport", "Bills", "Shopping", "Health", "Education", "Entertainment", "Home", "Other")
     var title by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
     var income by remember { mutableStateOf(false) }
