@@ -610,8 +610,10 @@ private fun LiquidOverviewCard(
                 if (width <= 0f || height <= 0f || animatedLevel <= 0f) return@ComposeCanvas
                 // Two-axis gravity controls the low edge. Reversing the phone reverses the vector.
                 val magnitude = kotlin.math.sqrt(gravityX * gravityX + gravityY * gravityY)
-                val downX = if (magnitude > 0.025f) gravityX / magnitude else 0f
-                val downY = if (magnitude > 0.025f) gravityY / magnitude else 1f
+                // Sensor gravity points toward the opposite side from the liquid's resting direction
+                // in this card coordinate system, so invert both axes before projecting it.
+                val downX = if (magnitude > 0.025f) -gravityX / magnitude else 0f
+                val downY = if (magnitude > 0.025f) -gravityY / magnitude else -1f
                 val tangentX = -downY
                 val tangentY = downX
                 val halfExtent = kotlin.math.abs(downX) * width / 2f + kotlin.math.abs(downY) * height / 2f
