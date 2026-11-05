@@ -185,7 +185,7 @@ class MainActivity : FragmentActivity() {
     }
 }
 
-private enum class Destination(val label: String) { Home("Home"), Vault("Vault"), Reminders("Reminders"), Money("Money"), HomeCare("Home care"), Planner("Planner"), Search("Search"), Settings("Settings"), About("About"), Guide("Guide"), Terms("Terms"), Privacy("Privacy") }
+private enum class Destination(val label: String) { Home("Home"), Vault("Vault"), Reminders("Reminders"), Money("Money"), HomeCare("Home care"), Planner("Planner"), Search("Search"), Assistant("Assistant"), Settings("Settings"), About("About"), Guide("Guide"), Terms("Terms"), Privacy("Privacy") }
 
 @Composable
 private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String, Long, Int) -> Unit, onCompleteReminder: (Long) -> Unit, onAddTransaction: (String, Double, Boolean, String) -> Unit, onBiometricLockChange: (Boolean) -> Boolean) {
@@ -208,6 +208,7 @@ private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String, Long, Int) -> Un
             Destination.Planner -> PlannerScreen(padding, dao)
             Destination.Settings -> SettingsScreen(padding, dao, onNavigate = { selected = it }, onBiometricLockChange = onBiometricLockChange)
             Destination.Search -> SearchScreen(padding, dao, reminders, transactions)
+            Destination.Assistant -> LifeVaultAssistantScreen(padding, dao)
             Destination.About -> InfoScreen(padding, "About LifeVault", "A calm space for the important parts of everyday life.", listOf("LifeVault helps organise reminders, documents and simple money records.", "This native Android app stores its current records locally on your device.", "Some features are still being developed. The app does not provide financial, legal or medical advice."), onBack = { selected = Destination.Settings })
             Destination.Guide -> InfoScreen(padding, "Documentation", "A quick guide to using LifeVault.", listOf("Home: view a summary of reminders and recorded spending.", "Vault: import a file using the Android document picker. Open a saved file with a compatible app. Removing a vault entry does not delete the original file.", "Reminders: create a reminder and mark it complete. Notifications depend on Android notification permission and your notification setting.", "Money: record an income or expense manually. Entries are a personal log, not a bank connection.", "Home care: this section is a placeholder for future appliance and maintenance records."), onBack = { selected = Destination.Settings })
             Destination.Terms -> InfoScreen(padding, "Terms of use", "Please read these basic terms before using the app.", listOf("Use LifeVault lawfully and only for information you are permitted to store.", "You are responsible for keeping your device secure and maintaining your own backups of important files.", "LifeVault is provided as an organisational tool. It does not guarantee that reminders will always be delivered; Android settings, battery restrictions and permissions may affect them.", "The app is provided as-is while under development. Features may change, be unavailable or contain errors.", "Do not rely on LifeVault as the sole copy of critical documents or as professional financial, legal or medical advice."), onBack = { selected = Destination.Settings })
@@ -956,6 +957,7 @@ private fun SettingsScreen(padding: PaddingValues, dao: VaultDao, onNavigate: (D
                 }
             }
         }
+        item { SettingsLink("LifeVault Assistant", "Connect your own AI provider and API key", Icons.Default.AutoAwesome) { onNavigate(Destination.Assistant) } }
         item { Text("Information", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold) }
         item { SettingsLink("Documentation", "How to use the app", Icons.Default.MenuBook) { onNavigate(Destination.Guide) } }
         item { SettingsLink("Terms of use", "Rules for using LifeVault", Icons.Default.Gavel) { onNavigate(Destination.Terms) } }
