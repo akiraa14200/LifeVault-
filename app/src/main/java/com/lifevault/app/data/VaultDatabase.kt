@@ -25,6 +25,7 @@ interface VaultDao {
     @Query("SELECT * FROM budgets ORDER BY category ASC") fun observeBudgets(): Flow<List<BudgetEntity>>
     @Query("SELECT * FROM budgets ORDER BY category ASC") suspend fun allBudgets(): List<BudgetEntity>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveBudget(budget: BudgetEntity)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun restoreBudgets(items: List<BudgetEntity>)
     @Query("DELETE FROM budgets WHERE category = :category") suspend fun deleteBudget(category: String)
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun restoreReminders(items: List<ReminderEntity>)
     @Insert suspend fun addReminder(reminder: ReminderEntity): Long
@@ -55,7 +56,7 @@ interface VaultDao {
         if (reminders.isNotEmpty()) restoreReminders(reminders)
         if (transactions.isNotEmpty()) restoreTransactions(transactions)
         if (documents.isNotEmpty()) restoreDocuments(documents)
-        if (budgets.isNotEmpty()) budgets.forEach { saveBudget(it) }
+        if (budgets.isNotEmpty()) restoreBudgets(budgets)
     }
 }
 
