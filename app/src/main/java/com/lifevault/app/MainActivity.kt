@@ -7,6 +7,10 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.pdf.PdfRenderer
 import android.os.Build
 import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
@@ -19,6 +23,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
@@ -34,12 +39,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.lifevault.app.data.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
@@ -127,7 +136,7 @@ private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String, Long, Int) -> Un
         }
     }) { padding ->
         when (selected) {
-            Destination.Home -> HomeScreen(padding, reminders, transactions, onCompleteReminder, onSearch = { selected = Destination.Search }, onSettings = { selected = Destination.Settings })
+            Destination.Home -> HomeScreen(padding, reminders, transactions, dao, onCompleteReminder, onSearch = { selected = Destination.Search }, onSettings = { selected = Destination.Settings }, onNavigate = { selected = it })
             Destination.Vault -> VaultScreen(padding, dao)
             Destination.Reminders -> RemindersScreen(padding, reminders, onAddReminder, onCompleteReminder)
             Destination.Money -> MoneyScreen(padding, transactions, dao, onAddTransaction)
@@ -169,6 +178,7 @@ private fun BiometricUnlockScreen(onUnlock: () -> Unit) {
     var folder by remember { mutableStateOf("General") }
     var tags by remember { mutableStateOf("") }
     var folderFilter by remember { mutableStateOf("All") }
+    var searchQuery by remember { mutableStateOf("") }
     var sortByName by remember { mutableStateOf(false) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -184,6 +194,7 @@ private fun BiometricUnlockScreen(onUnlock: () -> Unit) {
         Header("Your private space", "Document vault", "Keep important files organised on this device.")
         OutlinedTextField(folder, { folder = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Folder for new files") }, singleLine = true)
         OutlinedTextField(tags, { tags = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Tags (comma separated)") }, singleLine = true)
+        OutlinedTextField(searchQuery, { searchQuery = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, leadingIcon = { Icon(Icons.Default.Search, null) }, trailingIcon = { if (searchQuery.isNotBlank()) IconButton(onClick = { searchQuery = "" }) { Icon(Icons.Default.Close, "Clear search") } }, placeholder = { Text("Search files, folders or tags") })
         Button(onClick = { picker.launch(arrayOf("*/*")) }, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
             Icon(Icons.Default.UploadFile, null); Spacer(Modifier.width(8.dp)); Text("Import files")
         }
@@ -193,25 +204,37 @@ private fun BiometricUnlockScreen(onUnlock: () -> Unit) {
             folders.forEach { name -> FilterChip(selected = folderFilter == name, onClick = { folderFilter = name }, label = { Text(name) }) }
             FilterChip(selected = sortByName, onClick = { sortByName = !sortByName }, label = { Text(if (sortByName) "A–Z" else "Newest") })
         }
-        val filteredDocuments = if (folderFilter == "All") documents else documents.filter { it.folder == folderFilter }
+        val term = searchQuery.trim()
+        val folderDocuments = if (folderFilter == "All") documents else documents.filter { it.folder == folderFilter }
+        val filteredDocuments = folderDocuments.filter { term.isBlank() || it.name.contains(term, true) || it.folder.contains(term, true) || it.tags.contains(term, true) || it.mimeType.contains(term, true) }
         val visibleDocuments = if (sortByName) filteredDocuments.sortedBy { it.name.lowercase() } else filteredDocuments.sortedByDescending { it.addedAt }
         if (documents.isEmpty()) EmptyCard("Your vault is empty", "Import PDFs, images and other documents to get started.")
         else LazyColumn(verticalArrangement = Arrangement.spacedBy(9.dp)) {
             items(visibleDocuments, key = { it.id }) { file ->
                 Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(16.dp)) {
                     Row(Modifier.fillMaxWidth().padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.InsertDriveFile, null, tint = Forest, modifier = Modifier.size(28.dp))
+                        DocumentThumbnail(file.uri, file.mimeType, file.name)
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(file.name, fontWeight = FontWeight.SemiBold, maxLines = 2)
                             Text("${file.folder} • ${file.mimeType}", color = Muted, style = MaterialTheme.typography.labelSmall)
                             if (file.tags.isNotBlank()) Text(file.tags, color = Muted, style = MaterialTheme.typography.labelSmall)
                         }
+                        var moveMenu by remember { mutableStateOf(false) }
+                        Box {
+                            IconButton(onClick = { moveMenu = true }) { Icon(Icons.Default.FolderOpen, "Move to folder", tint = Forest) }
+                            DropdownMenu(expanded = moveMenu, onDismissRequest = { moveMenu = false }) {
+                                folders.filter { it != "All" && it != file.folder }.forEach { target ->
+                                    DropdownMenuItem(text = { Text(target) }, onClick = { moveMenu = false; (context as? ComponentActivity)?.lifecycleScope?.launch { dao.updateDocumentFolder(file.id, target) } })
+                                }
+                                DropdownMenuItem(text = { Text("Move to ${folder.trim().ifBlank { "General" }}") }, onClick = { moveMenu = false; (context as? ComponentActivity)?.lifecycleScope?.launch { dao.updateDocumentFolder(file.id, folder.trim().ifBlank { "General" }) } })
+                            }
+                        }
                         IconButton(onClick = {
                             runCatching {
                                 val intent = Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse(file.uri), file.mimeType).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                 context.startActivity(intent)
-                            }
+                            }.onFailure { android.widget.Toast.makeText(context, "No compatible app found for this file.", android.widget.Toast.LENGTH_SHORT).show() }
                         }) { Icon(Icons.Default.OpenInNew, "Open file", tint = Forest) }
                         IconButton(onClick = { (context as? ComponentActivity)?.lifecycleScope?.launch { dao.deleteDocument(file.id) } }) {
                             Icon(Icons.Default.DeleteOutline, "Remove from vault", tint = Muted)
@@ -221,6 +244,48 @@ private fun BiometricUnlockScreen(onUnlock: () -> Unit) {
             }
         }
     }
+}
+
+@Composable private fun DocumentThumbnail(uri: String, mimeType: String, name: String) {
+    val context = LocalContext.current
+    val preview by produceState<androidx.compose.ui.graphics.ImageBitmap?>(initialValue = null, uri, mimeType) {
+        value = withContext(Dispatchers.IO) { runCatching { loadDocumentPreview(context, Uri.parse(uri), mimeType) }.getOrNull() }
+    }
+    if (preview != null) {
+        Image(bitmap = preview!!, contentDescription = name, modifier = Modifier.size(76.dp, 92.dp), contentScale = ContentScale.Crop)
+    } else {
+        Box(Modifier.size(76.dp, 92.dp).background(Mint, RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+            Icon(if (mimeType == "application/pdf") Icons.Default.PictureAsPdf else Icons.Default.InsertDriveFile, null, tint = Forest, modifier = Modifier.size(30.dp))
+        }
+    }
+}
+
+private fun loadDocumentPreview(context: Context, uri: Uri, mimeType: String): androidx.compose.ui.graphics.ImageBitmap? {
+    val resolver = context.contentResolver
+    val bitmap: Bitmap? = when {
+        mimeType.startsWith("image/") -> {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+            var sample = 1
+            while (bounds.outWidth / sample > 700 || bounds.outHeight / sample > 900) sample *= 2
+            val options = BitmapFactory.Options().apply { inSampleSize = sample.coerceAtLeast(1) }
+            resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+        }
+        mimeType == "application/pdf" -> resolver.openFileDescriptor(uri, "r")?.use { descriptor ->
+            PdfRenderer(descriptor).use { renderer ->
+                if (renderer.pageCount == 0) null else {
+                    val page = renderer.openPage(0)
+                    try {
+                        val width = 420
+                        val height = (width.toFloat() * page.height / page.width).toInt().coerceAtLeast(1)
+                        Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { page.render(it, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY) }
+                    } finally { page.close() }
+                }
+            }
+        }
+        else -> null
+    }
+    return bitmap?.asImageBitmap()
 }
 
 @Composable private fun Header(kicker: String, title: String, subtitle: String? = null) {
@@ -237,18 +302,41 @@ private fun BiometricUnlockScreen(onUnlock: () -> Unit) {
     var showMetrics by remember { mutableStateOf(prefs.getBoolean("dashboard_show_metrics", true)) }
     var showSpending by remember { mutableStateOf(prefs.getBoolean("dashboard_show_spending", true)) }
     var showReminders by remember { mutableStateOf(prefs.getBoolean("dashboard_show_reminders", true)) }
-    val expenses = transactions.filter { !it.isIncome }.sumOf { it.amountPaise }
+    val calendar = remember { java.util.Calendar.getInstance() }
+    val monthStart = remember { (calendar.clone() as java.util.Calendar).apply { set(java.util.Calendar.DAY_OF_MONTH, 1); set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0); set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0) }.timeInMillis }
+    val monthTransactions = transactions.filter { it.createdAt >= monthStart }
+    val monthExpenses = monthTransactions.filter { !it.isIncome }.sumOf { it.amountPaise }
+    val monthIncome = monthTransactions.filter { it.isIncome }.sumOf { it.amountPaise }
+    val upcomingCount = reminders.count { !it.isDone && it.dueAt >= System.currentTimeMillis() }
     LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item { Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("lifevault.", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Forest); Spacer(Modifier.height(16.dp)); Header("Your personal space", "A little more organised.", "Everything important, in one calm place.") }; Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 IconButton(onClick = onSearch, modifier = Modifier.size(44.dp).background(Mint, CircleShape)) { Icon(Icons.Default.Search, "Search", tint = Forest) }
                 IconButton(onClick = onSettings, modifier = Modifier.size(44.dp).background(Mint, CircleShape)) { Text("LV", color = Forest, fontWeight = FontWeight.Bold) }
             } } }
-        if (showMetrics) item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { Metric("Open reminders", reminders.count { !it.isDone }.toString(), Modifier.weight(1f)); Metric("Saved records", transactions.size.toString(), Modifier.weight(1f)) } }
-        if (showSpending) item { Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Forest)) { Column(Modifier.fillMaxWidth().padding(20.dp)) { Text("Your spending", color = Color.White.copy(alpha = .72f)); Text(formatRupees(expenses), color = Color.White, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold); Text("Recorded on this device", color = Color.White.copy(alpha = .72f), style = MaterialTheme.typography.bodySmall) } } }
+        if (showMetrics) item { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { Metric("Upcoming reminders", upcomingCount.toString(), Modifier.weight(1f)); Metric("Vault files", documents.size.toString(), Modifier.weight(1f)) }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { Metric("This month income", formatRupees(monthIncome), Modifier.weight(1f)); Metric("This month expenses", formatRupees(monthExpenses), Modifier.weight(1f)) }
+        } }
+        item { Text("Quick actions", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
+        item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            QuickAction("Reminder", Icons.Default.Notifications, Modifier.weight(1f)) { onNavigate(Destination.Reminders) }
+            QuickAction("Add expense", Icons.Default.AddCard, Modifier.weight(1f)) { onNavigate(Destination.Money) }
+            QuickAction("Open vault", Icons.Default.Folder, Modifier.weight(1f)) { onNavigate(Destination.Vault) }
+        } }
+        if (showSpending) item { Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Forest)) { Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) { Text("This month’s spending", color = Color.White.copy(alpha = .72f)); Text(formatRupees(monthExpenses), color = Color.White, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold); Text("Income ${formatRupees(monthIncome)}  •  Net ${formatRupees(monthIncome - monthExpenses)}", color = Color.White.copy(alpha = .78f), style = MaterialTheme.typography.bodySmall); Text("Based on entries recorded this month", color = Color.White.copy(alpha = .72f), style = MaterialTheme.typography.bodySmall) } } }
         if (showReminders) {
             item { Text("Upcoming reminders", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
             if (reminders.isEmpty()) item { EmptyCard("No reminders yet", "Add a reminder to see it here.") }
             items(reminders.take(4), key = { it.id }) { ReminderRow(it, onComplete) }
+        }
+    }
+}
+
+@Composable private fun QuickAction(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Card(onClick = onClick, modifier = modifier, colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(16.dp)) {
+        Column(Modifier.fillMaxWidth().padding(vertical = 14.dp, horizontal = 8.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Icon(icon, null, tint = Forest)
+            Text(label, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, maxLines = 1)
         }
     }
 }
@@ -347,7 +435,8 @@ private fun BiometricUnlockScreen(onUnlock: () -> Unit) {
 }
 
 @Composable private fun MoneyScreen(padding: PaddingValues, transactions: List<TransactionEntity>, dao: VaultDao, onAdd: (String, Double, Boolean, String) -> Unit) {
-    val budgets by dao.observeBudgets().collectAsStateWithLifecycle(initialValue = emptyList())    val categories = listOf("Food", "Transport", "Bills", "Shopping", "Health", "Education", "Entertainment", "Home", "Other")
+    val budgets by dao.observeBudgets().collectAsStateWithLifecycle(initialValue = emptyList())
+    val categories = listOf("Food", "Transport", "Bills", "Shopping", "Health", "Education", "Entertainment", "Home", "Other")
     var title by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
     var income by remember { mutableStateOf(false) }
