@@ -1,3 +1,4 @@
+# Native Android debug APK build; kept separate from the legacy web CI.
 name: Android APK
 on:
   workflow_dispatch:
