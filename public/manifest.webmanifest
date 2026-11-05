@@ -1,0 +1,10 @@
+{
+  "name": "LifeVault",
+  "short_name": "LifeVault",
+  "description": "A calm, private home for life's details.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f6f2",
+  "theme_color": "#234c3d",
+  "icons": []
+}
