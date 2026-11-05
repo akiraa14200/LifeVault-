@@ -447,9 +447,30 @@ private fun loadDocumentPreview(context: Context, uri: Uri, mimeType: String): a
     var showBudget by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val monthStart = remember { java.util.Calendar.getInstance().apply { set(java.util.Calendar.DAY_OF_MONTH, 1); set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0); set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0) }.timeInMillis }
-    val monthExpenses = transactions.filter { !it.isIncome && it.createdAt >= monthStart }.groupBy { it.category }.mapValues { entry -> entry.value.sumOf { it.amountPaise } }
+    val previousMonthStart = remember(monthStart) { java.util.Calendar.getInstance().apply { timeInMillis = monthStart; add(java.util.Calendar.MONTH, -1) }.timeInMillis }
+    val currentMonthTransactions = transactions.filter { it.createdAt >= monthStart }
+    val monthExpenses = currentMonthTransactions.filter { !it.isIncome }.groupBy { it.category }.mapValues { entry -> entry.value.sumOf { it.amountPaise } }
+    val monthIncomeTotal = currentMonthTransactions.filter { it.isIncome }.sumOf { it.amountPaise }
+    val monthExpenseTotal = monthExpenses.values.sum()
+    val previousMonthExpenseTotal = transactions.filter { !it.isIncome && it.createdAt >= previousMonthStart && it.createdAt < monthStart }.sumOf { it.amountPaise }
+    val leadingCategory = monthExpenses.maxByOrNull { it.value }
+    val spendChange = if (previousMonthExpenseTotal > 0L) ((monthExpenseTotal - previousMonthExpenseTotal).toDouble() / previousMonthExpenseTotal.toDouble() * 100.0) else null
     Column(Modifier.fillMaxSize().padding(padding).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Header("Know where it goes", "Money", "A simple, private spending log.")
+        Card(colors = CardDefaults.cardColors(containerColor = Forest), shape = RoundedCornerShape(20.dp)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(Date(monthStart)), color = Color.White.copy(alpha = .75f), style = MaterialTheme.typography.labelLarge)
+                Text("Monthly overview", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.weight(1f)) { Text("Income", color = Color.White.copy(alpha = .72f), style = MaterialTheme.typography.labelSmall); Text(formatRupees(monthIncomeTotal), color = Color.White, fontWeight = FontWeight.SemiBold) }
+                    Column(Modifier.weight(1f)) { Text("Expenses", color = Color.White.copy(alpha = .72f), style = MaterialTheme.typography.labelSmall); Text(formatRupees(monthExpenseTotal), color = Color.White, fontWeight = FontWeight.SemiBold) }
+                    Column(Modifier.weight(1f)) { Text("Net", color = Color.White.copy(alpha = .72f), style = MaterialTheme.typography.labelSmall); Text(formatRupees(monthIncomeTotal - monthExpenseTotal), color = Color.White, fontWeight = FontWeight.SemiBold) }
+                }
+                HorizontalDivider(color = Color.White.copy(alpha = .22f))
+                Text(if (leadingCategory != null) "Top category: ${leadingCategory.key} • ${formatRupees(leadingCategory.value)}" else "No expenses recorded this month yet.", color = Color.White, style = MaterialTheme.typography.bodySmall)
+                Text(when { spendChange == null -> "No previous-month comparison available yet."; spendChange > 0 -> "Spending is ${String.format(Locale.getDefault(), "%.0f", spendChange)}% higher than last month."; spendChange < 0 -> "Spending is ${String.format(Locale.getDefault(), "%.0f", -spendChange)}% lower than last month."; else -> "Spending matches last month." }, color = Color.White.copy(alpha = .78f), style = MaterialTheme.typography.bodySmall)
+            }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { show = true }, shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f)) { Icon(Icons.Default.Add, null); Spacer(Modifier.width(6.dp)); Text("Add transaction") }
             OutlinedButton(onClick = { showBudget = true }, shape = RoundedCornerShape(14.dp)) { Icon(Icons.Default.Flag, null); Spacer(Modifier.width(5.dp)); Text("Budget") }
@@ -467,7 +488,7 @@ private fun loadDocumentPreview(context: Context, uri: Uri, mimeType: String): a
                         IconButton(onClick = { scope.launch { dao.deleteBudget(budget.category) } }, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Close, "Remove budget", tint = Muted) }
                     }
                     LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
-                    if (spent > budget.monthlyLimitPaise) Text("Budget exceeded", color = Color(0xFFB45309), style = MaterialTheme.typography.labelSmall)
+                    Text(if (spent > budget.monthlyLimitPaise) "Over by ${formatRupees(spent - budget.monthlyLimitPaise)}" else "${formatRupees(budget.monthlyLimitPaise - spent)} remaining • ${if (budget.monthlyLimitPaise > 0) (spent * 100 / budget.monthlyLimitPaise).coerceAtMost(999) else 0}% used", color = if (spent > budget.monthlyLimitPaise) Color(0xFFB45309) else Muted, style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
