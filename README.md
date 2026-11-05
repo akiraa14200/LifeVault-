@@ -9,7 +9,7 @@ LifeVault is a personal life organiser for documents, reminders, expenses, subsc
 - Vercel deployment target
 
 ## Current status
-The first foundation commit includes a responsive dashboard preview, app shell, Supabase browser/server client helpers, environment template and an initial owner-scoped database/storage migration. The dashboard currently uses clearly labelled sample/empty-state data; CRUD, authentication screens, scheduled notifications and payments are not yet connected.
+The current development branch includes a responsive dashboard preview, Supabase SSR clients, email/password sign-up and sign-in, email confirmation callback, password reset, protected server session middleware, and a connected dashboard for reminder CRUD (create/complete) and manual expense/income creation. Owner-scoped RLS and private Storage migrations are included. Apply both migrations and configure Supabase Auth URLs before testing. Scheduled notifications, document uploads, subscriptions, maintenance, calendar, export/deletion and verified billing remain on the roadmap.
 
 ## Local setup
 1. Install Node.js 20.9+.
