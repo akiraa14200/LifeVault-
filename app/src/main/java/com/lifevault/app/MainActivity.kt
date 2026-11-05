@@ -73,7 +73,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Destination(val label: String) { Home("Home"), Vault("Vault"), Reminders("Reminders"), Money("Money"), HomeCare("Home care") }
+private enum class Destination(val label: String) { Home("Home"), Vault("Vault"), Reminders("Reminders"), Money("Money"), HomeCare("Home care"), Settings("Settings"), About("About"), Guide("Guide"), Terms("Terms"), Privacy("Privacy") }
 
 @Composable
 private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String) -> Unit, onCompleteReminder: (Long) -> Unit, onAddTransaction: (String, Double, Boolean) -> Unit) {
@@ -87,11 +87,11 @@ private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String) -> Unit, onCompl
         }
     }) { padding ->
         when (selected) {
-            Destination.Home -> HomeScreen(padding, reminders, transactions, onCompleteReminder)
+            Destination.Home -> HomeScreen(padding, reminders, transactions, onCompleteReminder) { selected = Destination.Settings }
             Destination.Vault -> VaultScreen(padding, dao)
             Destination.Reminders -> RemindersScreen(padding, reminders, onAddReminder, onCompleteReminder)
             Destination.Money -> MoneyScreen(padding, transactions, onAddTransaction)
-            Destination.HomeCare -> FeatureScreen(padding, "Home care", "Appliances, service history and maintenance.", Icons.Default.HomeRepairService, "Appliance records and maintenance schedules are planned next.")
+            Destination.HomeCare -> FeatureScreen(padding, "Home care", "Appliances, service history and maintenance.", Icons.Default.HomeRepairService, "Appliance records and maintenance schedules are planned next.")\n            Destination.Settings -> SettingsScreen(padding, onNavigate = { selected = it })\n            Destination.About -> InfoScreen(padding, "About LifeVault", "A calm space for the important parts of everyday life.", listOf("LifeVault helps organise reminders, documents and simple money records.", "This native Android app stores its current records locally on your device.", "Some features are still being developed. The app does not provide financial, legal or medical advice."), onBack = { selected = Destination.Settings })\n            Destination.Guide -> InfoScreen(padding, "Documentation", "A quick guide to using LifeVault.", listOf("Home: view a summary of reminders and recorded spending.", "Vault: import a file using the Android document picker. Open a saved file with a compatible app. Removing a vault entry does not delete the original file.", "Reminders: create a reminder and mark it complete. Notifications depend on Android notification permission and your notification setting.", "Money: record an income or expense manually. Entries are a personal log, not a bank connection.", "Home care: this section is a placeholder for future appliance and maintenance records."), onBack = { selected = Destination.Settings })\n            Destination.Terms -> InfoScreen(padding, "Terms of use", "Please read these basic terms before using the app.", listOf("Use LifeVault lawfully and only for information you are permitted to store.", "You are responsible for keeping your device secure and maintaining your own backups of important files.", "LifeVault is provided as an organisational tool. It does not guarantee that reminders will always be delivered; Android settings, battery restrictions and permissions may affect them.", "The app is provided as-is while under development. Features may change, be unavailable or contain errors.", "Do not rely on LifeVault as the sole copy of critical documents or as professional financial, legal or medical advice."), onBack = { selected = Destination.Settings })\n            Destination.Privacy -> InfoScreen(padding, "Privacy policy", "What the current native build does with your information.", listOf("The current native build stores reminders, money entries and document references in a local Room database on this device.", "Imported files remain in their original Android document provider. LifeVault stores a reference and display details; removing an entry removes the reference from the vault, not the original file.", "Reminder notifications are generated on-device. You can turn them off in Settings or in Android system settings.", "This build does not currently connect to a LifeVault cloud account or sync data to a server.", "Uninstalling the app or clearing its app data may remove locally stored records. Keep independent copies of important information."), onBack = { selected = Destination.Settings })
         }
     }
 }
@@ -150,10 +150,10 @@ private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String) -> Unit, onCompl
     }
 }
 
-@Composable private fun HomeScreen(padding: PaddingValues, reminders: List<ReminderEntity>, transactions: List<TransactionEntity>, onComplete: (Long) -> Unit) {
+@Composable private fun HomeScreen(padding: PaddingValues, reminders: List<ReminderEntity>, transactions: List<TransactionEntity>, onComplete: (Long) -> Unit, onSettings: () -> Unit) {
     val expenses = transactions.filter { !it.isIncome }.sumOf { it.amountPaise }
     LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        item { Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("lifevault.", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Forest); Spacer(Modifier.height(16.dp)); Header("Your personal space", "A little more organised.", "Everything important, in one calm place.") }; Box(Modifier.size(44.dp).background(Mint, CircleShape), contentAlignment = Alignment.Center) { Text("LV", color = Forest, fontWeight = FontWeight.Bold) } } }
+        item { Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("lifevault.", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Forest); Spacer(Modifier.height(16.dp)); Header("Your personal space", "A little more organised.", "Everything important, in one calm place.") }; IconButton(onClick = onSettings, modifier = Modifier.size(48.dp).background(Mint, CircleShape)) { Text("LV", color = Forest, fontWeight = FontWeight.Bold) } } }
         item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { Metric("Open reminders", reminders.count { !it.isDone }.toString(), Modifier.weight(1f)); Metric("Saved records", transactions.size.toString(), Modifier.weight(1f)) } }
         item { Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Forest)) { Column(Modifier.fillMaxWidth().padding(20.dp)) { Text("Your spending", color = Color.White.copy(alpha = .72f)); Text(formatRupees(expenses), color = Color.White, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold); Text("Recorded on this device", color = Color.White.copy(alpha = .72f), style = MaterialTheme.typography.bodySmall) } } }
         item { Text("Upcoming reminders", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
@@ -199,3 +199,75 @@ private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String) -> Unit, onCompl
 }
 
 private fun formatRupees(paise: Long): String = NumberFormat.getCurrencyInstance(Locale("en", "IN")).format(paise / 100.0)
+
+
+@Composable
+private fun SettingsScreen(padding: PaddingValues, onNavigate: (Destination) -> Unit) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("lifevault_settings", android.content.Context.MODE_PRIVATE) }
+    var notifications by remember { mutableStateOf(prefs.getBoolean("notifications_enabled", true)) }
+    var cacheMessage by remember { mutableStateOf("") }
+    Column(Modifier.fillMaxSize().padding(padding).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Header("Personalise your app", "Settings", "Manage LifeVault on this device.")
+        Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("App preferences", fontWeight = FontWeight.SemiBold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) { Text("Reminder notifications", fontWeight = FontWeight.Medium); Text("Allow LifeVault to post reminder alerts", color = Muted, style = MaterialTheme.typography.bodySmall) }
+                    Switch(checked = notifications, onCheckedChange = { enabled -> notifications = enabled; prefs.edit().putBoolean("notifications_enabled", enabled).apply() })
+                }
+                Divider()
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) { Text("Appearance"); Text("Light theme", color = Muted, style = MaterialTheme.typography.bodySmall) }
+                    Text("Default", color = Forest, style = MaterialTheme.typography.labelMedium)
+                }
+                Text("Language follows your device language where supported.", color = Muted, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("App storage", fontWeight = FontWeight.SemiBold)
+                Text("Clear temporary cache files. Your vault entries and money records are not intentionally deleted.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = {
+                    val cleared = runCatching { context.cacheDir.listFiles()?.forEach { it.deleteRecursively() }; true }.getOrDefault(false)
+                    cacheMessage = if (cleared) "Temporary cache cleared." else "Could not clear cache."
+                    android.widget.Toast.makeText(context, cacheMessage, android.widget.Toast.LENGTH_SHORT).show()
+                }) { Icon(Icons.Default.DeleteSweep, null); Spacer(Modifier.width(6.dp)); Text("Clear cache") }
+                if (cacheMessage.isNotBlank()) Text(cacheMessage, color = Forest, style = MaterialTheme.typography.labelSmall)
+            }
+        }
+        Text("Information", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        SettingsLink("Documentation", "How to use the app", Icons.Default.MenuBook) { onNavigate(Destination.Guide) }
+        SettingsLink("Terms of use", "Rules for using LifeVault", Icons.Default.Gavel) { onNavigate(Destination.Terms) }
+        SettingsLink("Privacy policy", "How your data is handled", Icons.Default.PrivacyTip) { onNavigate(Destination.Privacy) }
+        SettingsLink("About LifeVault", "App information and version", Icons.Default.Info) { onNavigate(Destination.About) }
+        Text("LifeVault • Native Android • Local-first preview", color = Muted, style = MaterialTheme.typography.labelSmall)
+    }
+}
+
+@Composable
+private fun SettingsLink(title: String, subtitle: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+    Card(onClick = onClick, colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(15.dp)) {
+        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, tint = Forest)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.SemiBold); Text(subtitle, color = Muted, style = MaterialTheme.typography.bodySmall) }
+            Icon(Icons.Default.ChevronRight, null, tint = Muted)
+        }
+    }
+}
+
+@Composable
+private fun InfoScreen(padding: PaddingValues, title: String, subtitle: String, paragraphs: List<String>, onBack: () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(padding).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        TextButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null); Spacer(Modifier.width(6.dp)); Text("Settings") }
+        Header("LifeVault", title, subtitle)
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(paragraphs) { paragraph ->
+                Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(16.dp)) {
+                    Text(paragraph, Modifier.fillMaxWidth().padding(16.dp), color = Ink, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        }
+    }
+}
