@@ -212,41 +212,84 @@ private fun SettingsScreen(padding: PaddingValues, onNavigate: (Destination) -> 
     val prefs = remember { context.getSharedPreferences("lifevault_settings", android.content.Context.MODE_PRIVATE) }
     var notifications by remember { mutableStateOf(prefs.getBoolean("notifications_enabled", true)) }
     var cacheMessage by remember { mutableStateOf("") }
-    Column(Modifier.fillMaxSize().padding(padding).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Header("Personalise your app", "Settings", "Manage LifeVault on this device.")
-        Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp)) {
-            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("App preferences", fontWeight = FontWeight.SemiBold)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) { Text("Reminder notifications", fontWeight = FontWeight.Medium); Text("Allow LifeVault to post reminder alerts", color = Muted, style = MaterialTheme.typography.bodySmall) }
-                    Switch(checked = notifications, onCheckedChange = { enabled -> notifications = enabled; prefs.edit().putBoolean("notifications_enabled", enabled).apply() })
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(padding),
+        contentPadding = PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Header("Personalise your app", "Settings", "Manage LifeVault on this device.")
                 }
-                Divider()
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) { Text("Appearance"); Text("Light theme", color = Muted, style = MaterialTheme.typography.bodySmall) }
-                    Text("Default", color = Forest, style = MaterialTheme.typography.labelMedium)
+                IconButton(
+                    onClick = { onNavigate(Destination.Home) },
+                    modifier = Modifier.background(Mint, CircleShape)
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "Close settings", tint = Forest)
                 }
-                Text("Language follows your device language where supported.", color = Muted, style = MaterialTheme.typography.bodySmall)
             }
         }
-        Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp)) {
-            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("App storage", fontWeight = FontWeight.SemiBold)
-                Text("Clear temporary cache files. Your vault entries and money records are not intentionally deleted.", color = Muted, style = MaterialTheme.typography.bodySmall)
-                TextButton(onClick = {
-                    val cleared = runCatching { context.cacheDir.listFiles()?.forEach { it.deleteRecursively() }; true }.getOrDefault(false)
-                    cacheMessage = if (cleared) "Temporary cache cleared." else "Could not clear cache."
-                    android.widget.Toast.makeText(context, cacheMessage, android.widget.Toast.LENGTH_SHORT).show()
-                }) { Icon(Icons.Default.DeleteSweep, null); Spacer(Modifier.width(6.dp)); Text("Clear cache") }
-                if (cacheMessage.isNotBlank()) Text(cacheMessage, color = Forest, style = MaterialTheme.typography.labelSmall)
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp)) {
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("App preferences", fontWeight = FontWeight.SemiBold)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Reminder notifications", fontWeight = FontWeight.Medium)
+                            Text("Allow LifeVault to post reminder alerts", color = Muted, style = MaterialTheme.typography.bodySmall)
+                        }
+                        Switch(
+                            checked = notifications,
+                            onCheckedChange = { enabled ->
+                                notifications = enabled
+                                prefs.edit().putBoolean("notifications_enabled", enabled).apply()
+                            }
+                        )
+                    }
+                    HorizontalDivider()
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Appearance")
+                            Text("Light theme", color = Muted, style = MaterialTheme.typography.bodySmall)
+                        }
+                        Text("Default", color = Forest, style = MaterialTheme.typography.labelMedium)
+                    }
+                    Text("Language follows your device language where supported.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                }
             }
         }
-        Text("Information", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-        SettingsLink("Documentation", "How to use the app", Icons.Default.MenuBook) { onNavigate(Destination.Guide) }
-        SettingsLink("Terms of use", "Rules for using LifeVault", Icons.Default.Gavel) { onNavigate(Destination.Terms) }
-        SettingsLink("Privacy policy", "How your data is handled", Icons.Default.PrivacyTip) { onNavigate(Destination.Privacy) }
-        SettingsLink("About LifeVault", "App information and version", Icons.Default.Info) { onNavigate(Destination.About) }
-        Text("LifeVault • Native Android • Local-first preview", color = Muted, style = MaterialTheme.typography.labelSmall)
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp)) {
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("App storage", fontWeight = FontWeight.SemiBold)
+                    Text("Clear temporary cache files. Your vault entries and money records are not deleted.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = {
+                        val cleared = runCatching {
+                            val files = context.cacheDir.listFiles()
+                            if (files != null) files.forEach { it.deleteRecursively() }
+                            true
+                        }.getOrDefault(false)
+                        cacheMessage = if (cleared) "Temporary cache cleared." else "Could not clear cache."
+                        android.widget.Toast.makeText(context, cacheMessage, android.widget.Toast.LENGTH_SHORT).show()
+                    }) {
+                        Icon(Icons.Default.DeleteSweep, null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Clear cache")
+                    }
+                    if (cacheMessage.isNotBlank()) {
+                        Text(cacheMessage, color = Forest, style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
+        }
+        item { Text("Information", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold) }
+        item { SettingsLink("Documentation", "How to use the app", Icons.Default.MenuBook) { onNavigate(Destination.Guide) } }
+        item { SettingsLink("Terms of use", "Rules for using LifeVault", Icons.Default.Gavel) { onNavigate(Destination.Terms) } }
+        item { SettingsLink("Privacy policy", "How your data is handled", Icons.Default.PrivacyTip) { onNavigate(Destination.Privacy) } }
+        item { SettingsLink("About LifeVault", "App information and version", Icons.Default.Info) { onNavigate(Destination.About) } }
+        item { Text("LifeVault • Native Android • Local-first preview", color = Muted, style = MaterialTheme.typography.labelSmall) }
     }
 }
 
