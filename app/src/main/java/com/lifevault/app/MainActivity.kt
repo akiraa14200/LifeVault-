@@ -1,8 +1,16 @@
 package com.lifevault.app
 
 import android.os.Bundle
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -14,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -23,6 +32,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.lifevault.app.data.*
 import kotlinx.coroutines.launch
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.workDataOf
+import java.util.concurrent.TimeUnit
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -39,11 +52,20 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val dao = VaultDatabase.get(this).vaultDao()
+        val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
         setContent {
             MaterialTheme(colorScheme = lightColorScheme(primary = Forest, onPrimary = Color.White, secondary = Color(0xFF789A82), background = Canvas, surface = Color.White, onSurface = Ink)) {
                 LifeVaultApp(dao,
-                    onAddReminder = { title -> lifecycleScope.launch { dao.addReminder(ReminderEntity(title = title, dueAt = System.currentTimeMillis() + 86_400_000L)) } },
-                    onCompleteReminder = { id -> lifecycleScope.launch { dao.completeReminder(id) } },
+                    onAddReminder = { title ->
+                        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        lifecycleScope.launch {
+                            val dueAt = System.currentTimeMillis() + 86_400_000L
+                            val id = dao.addReminder(ReminderEntity(title = title, dueAt = dueAt))
+                            val request = OneTimeWorkRequestBuilder<ReminderWorker>().setInitialDelay((dueAt - System.currentTimeMillis()).coerceAtLeast(0), TimeUnit.MILLISECONDS).setInputData(workDataOf("title" to title, "reminder_id" to id)).build()
+                            WorkManager.getInstance(this@MainActivity).enqueueUniqueWork("reminder_$id", androidx.work.ExistingWorkPolicy.REPLACE, request)
+                        }
+                    },
+                    onCompleteReminder = { id -> lifecycleScope.launch { dao.completeReminder(id); WorkManager.getInstance(this@MainActivity).cancelUniqueWork("reminder_$id") } },
                     onAddTransaction = { title, amount, income -> lifecycleScope.launch { dao.addTransaction(TransactionEntity(title = title, amountPaise = (amount * 100).toLong(), isIncome = income)) } }
                 )
             }
@@ -66,10 +88,56 @@ private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String) -> Unit, onCompl
     }) { padding ->
         when (selected) {
             Destination.Home -> HomeScreen(padding, reminders, transactions, onCompleteReminder)
-            Destination.Vault -> FeatureScreen(padding, "Document vault", "Keep important files organised in one private place.", Icons.Default.Description, "Document import and previews are planned for the next milestone.")
+            Destination.Vault -> VaultScreen(padding, dao)
             Destination.Reminders -> RemindersScreen(padding, reminders, onAddReminder, onCompleteReminder)
             Destination.Money -> MoneyScreen(padding, transactions, onAddTransaction)
             Destination.HomeCare -> FeatureScreen(padding, "Home care", "Appliances, service history and maintenance.", Icons.Default.HomeRepairService, "Appliance records and maintenance schedules are planned next.")
+        }
+    }
+}
+
+@Composable private fun VaultScreen(padding: PaddingValues, dao: VaultDao) {
+    val context = LocalContext.current
+    val documents by dao.observeDocuments().collectAsStateWithLifecycle(initialValue = emptyList())
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+            val name = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            } ?: "Imported file"
+            val mime = context.contentResolver.getType(uri) ?: "application/octet-stream"
+            (context as? ComponentActivity)?.lifecycleScope?.launch { dao.addDocument(DocumentEntity(name = name, uri = uri.toString(), mimeType = mime)) }
+        }
+    }
+    Column(Modifier.fillMaxSize().padding(padding).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Header("Your private space", "Document vault", "Keep important files organised on this device.")
+        Button(onClick = { picker.launch(arrayOf("*/*")) }, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+            Icon(Icons.Default.UploadFile, null); Spacer(Modifier.width(8.dp)); Text("Import files")
+        }
+        Text("Files stay on this device. You can open them from LifeVault whenever you need them.", color = Muted, style = MaterialTheme.typography.bodySmall)
+        if (documents.isEmpty()) EmptyCard("Your vault is empty", "Import PDFs, images and other documents to get started.")
+        else LazyColumn(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            items(documents, key = { it.id }) { file ->
+                Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(16.dp)) {
+                    Row(Modifier.fillMaxWidth().padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.InsertDriveFile, null, tint = Forest, modifier = Modifier.size(28.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(file.name, fontWeight = FontWeight.SemiBold, maxLines = 2)
+                            Text(file.mimeType, color = Muted, style = MaterialTheme.typography.labelSmall)
+                        }
+                        IconButton(onClick = {
+                            runCatching {
+                                val intent = Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse(file.uri), file.mimeType).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                context.startActivity(intent)
+                            }
+                        }) { Icon(Icons.Default.OpenInNew, "Open file", tint = Forest) }
+                        IconButton(onClick = { (context as? ComponentActivity)?.lifecycleScope?.launch { dao.deleteDocument(file.id) } }) {
+                            Icon(Icons.Default.DeleteOutline, "Remove from vault", tint = Muted)
+                        }
+                    }
+                }
+            }
         }
     }
 }
