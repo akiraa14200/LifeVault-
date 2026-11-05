@@ -44,7 +44,6 @@ interface VaultDao {
     @Query("DELETE FROM transactions") suspend fun clearTransactions()
     @Query("DELETE FROM documents") suspend fun clearDocuments()
 
-    @Transaction
     @Query("DELETE FROM budgets") suspend fun clearBudgets()
 
     @Transaction
