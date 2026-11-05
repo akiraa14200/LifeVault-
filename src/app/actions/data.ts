@@ -7,7 +7,8 @@ import { createClient } from "@/lib/supabase/server";
 
 const reminderSchema = z.object({
   title: z.string().trim().min(1).max(180),
-  dueAt: z.iso.datetime({ offset: true }),
+  dueAt: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$/),
+  timezoneOffset: z.coerce.number().int().min(-840).max(840),
   category: z.string().trim().min(1).max(60),
   priority: z.enum(["low","normal","high"])
 });
@@ -30,6 +31,7 @@ export async function createReminder(formData: FormData) {
   const parsed = reminderSchema.safeParse({
     title: formData.get("title"),
     dueAt: formData.get("dueAt"),
+    timezoneOffset: formData.get("timezoneOffset") || "0",
     category: formData.get("category") || "Personal",
     priority: formData.get("priority") || "normal"
   });
@@ -38,7 +40,8 @@ export async function createReminder(formData: FormData) {
   const { error } = await supabase.from("reminders").insert({
     user_id: user.id,
     title: parsed.data.title,
-    due_at: parsed.data.dueAt,
+    // datetime-local is a wall-clock value; convert using the browser's UTC offset.
+    due_at: new Date(new Date(parsed.data.dueAt).getTime() + parsed.data.timezoneOffset * 60_000).toISOString(),
     category: parsed.data.category,
     priority: parsed.data.priority
   });
