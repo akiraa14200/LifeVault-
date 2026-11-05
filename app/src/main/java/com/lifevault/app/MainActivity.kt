@@ -84,14 +84,53 @@ class MainActivity : FragmentActivity() {
             MaterialTheme(colorScheme = lightColorScheme(primary = Forest, onPrimary = Color.White, secondary = Color(0xFF789A82), background = Canvas, surface = Color.White, onSurface = Ink)) {
                 if (isUnlocked) LifeVaultApp(dao,
                     onAddReminder = { title, dueAt, repeatDays ->
-                        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                         lifecycleScope.launch {
-                            runCatching {
-                                val id = dao.addReminder(ReminderEntity(title = title, dueAt = dueAt, repeatIntervalDays = repeatDays))
-                                ReminderScheduler.schedule(this@MainActivity, id, title, dueAt, repeatDays)
-                                LifeVaultWidgetProvider.refresh(this@MainActivity)
-                            }.onFailure { error ->
-                                android.widget.Toast.makeText(this@MainActivity, "Could not save reminder: ${error.message ?: "please try again"}", android.widget.Toast.LENGTH_LONG).show()
+                            try {
+                                // Persist first so a scheduler/notification problem can never lose the reminder.
+                                val id = dao.addReminder(
+                                    ReminderEntity(title = title, dueAt = dueAt, repeatIntervalDays = repeatDays)
+                                )
+                                val schedulingError = runCatching {
+                                    withContext(Dispatchers.IO) {
+                                        ReminderScheduler.schedule(
+                                            applicationContext,
+                                            id,
+                                            title,
+                                            dueAt,
+                                            repeatDays
+                                        )
+                                    }
+                                }.exceptionOrNull()
+
+                                runCatching { LifeVaultWidgetProvider.refresh(this@MainActivity) }
+
+                                if (Build.VERSION.SDK_INT >= 33 &&
+                                    checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                                ) {
+                                    notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                }
+
+                                if (schedulingError != null) {
+                                    android.util.Log.e("LifeVault", "Reminder saved but notification scheduling failed", schedulingError)
+                                    android.widget.Toast.makeText(
+                                        this@MainActivity,
+                                        "Reminder saved. Please reopen the app to retry its notifications.",
+                                        android.widget.Toast.LENGTH_LONG
+                                    ).show()
+                                } else {
+                                    android.widget.Toast.makeText(
+                                        this@MainActivity,
+                                        "Reminder saved",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            } catch (error: Exception) {
+                                android.util.Log.e("LifeVault", "Could not save reminder", error)
+                                android.widget.Toast.makeText(
+                                    this@MainActivity,
+                                    "Could not save reminder: ${error.localizedMessage ?: "please try again"}",
+                                    android.widget.Toast.LENGTH_LONG
+                                ).show()
                             }
                         }
                     },
