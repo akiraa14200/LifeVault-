@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 
 const reminderSchema = z.object({
   title: z.string().trim().min(1).max(180),
-  dueAt: z.string().regex(/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$/),
+  dueAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/),
   timezoneOffset: z.coerce.number().int().min(-840).max(840),
   category: z.string().trim().min(1).max(60),
   priority: z.enum(["low","normal","high"])
