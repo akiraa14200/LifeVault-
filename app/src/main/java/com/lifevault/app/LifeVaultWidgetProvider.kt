@@ -19,6 +19,7 @@ class LifeVaultWidgetProvider : AppWidgetProvider() {
                 val dao = VaultDatabase.get(context).vaultDao()
                 val reminders = dao.allReminders().filter { !it.isDone }.sortedBy { it.dueAt }
                 val transactions = dao.allTransactions()
+                val tasks = dao.allPlannerTasks().count { !it.isDone }
                 val expenses = transactions.filter { !it.isIncome }.sumOf { it.amountPaise }
                 val next = reminders.firstOrNull()?.title ?: "No upcoming reminders"
                 val amount = NumberFormat.getCurrencyInstance(Locale("en", "IN")).format(expenses / 100.0)
@@ -26,7 +27,10 @@ class LifeVaultWidgetProvider : AppWidgetProvider() {
                     val views = RemoteViews(context.packageName, R.layout.lifevault_widget)
                     views.setTextViewText(R.id.widget_reminder, next.take(48))
                     views.setTextViewText(R.id.widget_expenses, amount)
-                    views.setTextViewText(R.id.widget_count, reminders.size.toString() + " open reminders")
+                    views.setTextViewText(R.id.widget_count, reminders.size.toString() + " open reminders • " + tasks + " tasks")
+                    val launch = android.content.Intent(context, MainActivity::class.java)
+                    val pending = android.app.PendingIntent.getActivity(context, id, launch, android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
+                    views.setOnClickPendingIntent(R.id.widget_root, pending)
                     manager.updateAppWidget(id, views)
                 }
             } finally {
