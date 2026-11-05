@@ -40,6 +40,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.overscroll
+import androidx.compose.foundation.rememberOverscrollEffect
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -733,7 +735,7 @@ private fun SearchScreen(
         if (term.isEmpty()) {
             EmptyCard("Start typing to search", "Results update as you type.")
         } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyColumn(modifier = Modifier.overscroll(rememberOverscrollEffect()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (matchingReminders.isNotEmpty()) {
                     item { Text("REMINDERS", color = Muted, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold) }
                     items(matchingReminders, key = { "r${it.id}" }) { item ->
@@ -813,7 +815,7 @@ private fun SettingsScreen(padding: PaddingValues, dao: VaultDao, onNavigate: (D
     var cacheMessage by remember { mutableStateOf("") }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(padding),
+        modifier = Modifier.fillMaxSize().padding(padding).overscroll(rememberOverscrollEffect()),
         contentPadding = PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
