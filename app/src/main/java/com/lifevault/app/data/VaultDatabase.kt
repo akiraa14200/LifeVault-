@@ -37,6 +37,7 @@ interface VaultDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun restoreDocuments(items: List<DocumentEntity>)
     @Insert suspend fun addDocument(document: DocumentEntity)
     @Query("DELETE FROM documents WHERE id = :id") suspend fun deleteDocument(id: Long)
+    @Query("UPDATE documents SET folder = :folder WHERE id = :id") suspend fun updateDocumentFolder(id: Long, folder: String)
     @Query("SELECT * FROM transactions ORDER BY createdAt DESC") fun observeTransactions(): Flow<List<TransactionEntity>>
     @Query("SELECT * FROM transactions ORDER BY id ASC") suspend fun allTransactions(): List<TransactionEntity>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun restoreTransactions(items: List<TransactionEntity>)
