@@ -73,7 +73,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Destination(val label: String) { Home("Home"), Vault("Vault"), Reminders("Reminders"), Money("Money"), HomeCare("Home care"), Settings("Settings"), About("About"), Guide("Guide"), Terms("Terms"), Privacy("Privacy") }
+private enum class Destination(val label: String) { Home("Home"), Vault("Vault"), Reminders("Reminders"), Money("Money"), HomeCare("Home care"), Search("Search"), Settings("Settings"), About("About"), Guide("Guide"), Terms("Terms"), Privacy("Privacy") }
 
 @Composable
 private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String) -> Unit, onCompleteReminder: (Long) -> Unit, onAddTransaction: (String, Double, Boolean) -> Unit) {
@@ -87,12 +87,13 @@ private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String) -> Unit, onCompl
         }
     }) { padding ->
         when (selected) {
-            Destination.Home -> HomeScreen(padding, reminders, transactions, onCompleteReminder) { selected = Destination.Settings }
+            Destination.Home -> HomeScreen(padding, reminders, transactions, onCompleteReminder, onSearch = { selected = Destination.Search }, onSettings = { selected = Destination.Settings })
             Destination.Vault -> VaultScreen(padding, dao)
             Destination.Reminders -> RemindersScreen(padding, reminders, onAddReminder, onCompleteReminder)
             Destination.Money -> MoneyScreen(padding, transactions, onAddTransaction)
             Destination.HomeCare -> FeatureScreen(padding, "Home care", "Appliances, service history and maintenance.", Icons.Default.HomeRepairService, "Appliance records and maintenance schedules are planned next.")
-            Destination.Settings -> SettingsScreen(padding, onNavigate = { selected = it })
+            Destination.Settings -> SettingsScreen(padding, dao, onNavigate = { selected = it })
+            Destination.Search -> SearchScreen(padding, dao, reminders, transactions)
             Destination.About -> InfoScreen(padding, "About LifeVault", "A calm space for the important parts of everyday life.", listOf("LifeVault helps organise reminders, documents and simple money records.", "This native Android app stores its current records locally on your device.", "Some features are still being developed. The app does not provide financial, legal or medical advice."), onBack = { selected = Destination.Settings })
             Destination.Guide -> InfoScreen(padding, "Documentation", "A quick guide to using LifeVault.", listOf("Home: view a summary of reminders and recorded spending.", "Vault: import a file using the Android document picker. Open a saved file with a compatible app. Removing a vault entry does not delete the original file.", "Reminders: create a reminder and mark it complete. Notifications depend on Android notification permission and your notification setting.", "Money: record an income or expense manually. Entries are a personal log, not a bank connection.", "Home care: this section is a placeholder for future appliance and maintenance records."), onBack = { selected = Destination.Settings })
             Destination.Terms -> InfoScreen(padding, "Terms of use", "Please read these basic terms before using the app.", listOf("Use LifeVault lawfully and only for information you are permitted to store.", "You are responsible for keeping your device secure and maintaining your own backups of important files.", "LifeVault is provided as an organisational tool. It does not guarantee that reminders will always be delivered; Android settings, battery restrictions and permissions may affect them.", "The app is provided as-is while under development. Features may change, be unavailable or contain errors.", "Do not rely on LifeVault as the sole copy of critical documents or as professional financial, legal or medical advice."), onBack = { selected = Destination.Settings })
@@ -155,10 +156,13 @@ private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String) -> Unit, onCompl
     }
 }
 
-@Composable private fun HomeScreen(padding: PaddingValues, reminders: List<ReminderEntity>, transactions: List<TransactionEntity>, onComplete: (Long) -> Unit, onSettings: () -> Unit) {
+@Composable private fun HomeScreen(padding: PaddingValues, reminders: List<ReminderEntity>, transactions: List<TransactionEntity>, onComplete: (Long) -> Unit, onSearch: () -> Unit, onSettings: () -> Unit) {
     val expenses = transactions.filter { !it.isIncome }.sumOf { it.amountPaise }
     LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        item { Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("lifevault.", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Forest); Spacer(Modifier.height(16.dp)); Header("Your personal space", "A little more organised.", "Everything important, in one calm place.") }; IconButton(onClick = onSettings, modifier = Modifier.size(48.dp).background(Mint, CircleShape)) { Text("LV", color = Forest, fontWeight = FontWeight.Bold) } } }
+        item { Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("lifevault.", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Forest); Spacer(Modifier.height(16.dp)); Header("Your personal space", "A little more organised.", "Everything important, in one calm place.") }; Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                IconButton(onClick = onSearch, modifier = Modifier.size(44.dp).background(Mint, CircleShape)) { Icon(Icons.Default.Search, "Search", tint = Forest) }
+                IconButton(onClick = onSettings, modifier = Modifier.size(44.dp).background(Mint, CircleShape)) { Text("LV", color = Forest, fontWeight = FontWeight.Bold) }
+            } } }
         item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { Metric("Open reminders", reminders.count { !it.isDone }.toString(), Modifier.weight(1f)); Metric("Saved records", transactions.size.toString(), Modifier.weight(1f)) } }
         item { Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Forest)) { Column(Modifier.fillMaxWidth().padding(20.dp)) { Text("Your spending", color = Color.White.copy(alpha = .72f)); Text(formatRupees(expenses), color = Color.White, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold); Text("Recorded on this device", color = Color.White.copy(alpha = .72f), style = MaterialTheme.typography.bodySmall) } } }
         item { Text("Upcoming reminders", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
@@ -206,9 +210,101 @@ private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String) -> Unit, onCompl
 private fun formatRupees(paise: Long): String = NumberFormat.getCurrencyInstance(Locale("en", "IN")).format(paise / 100.0)
 
 
+
 @Composable
-private fun SettingsScreen(padding: PaddingValues, onNavigate: (Destination) -> Unit) {
+private fun SearchScreen(
+    padding: PaddingValues,
+    dao: VaultDao,
+    reminders: List<ReminderEntity>,
+    transactions: List<TransactionEntity>
+) {
+    var query by remember { mutableStateOf("") }
+    val documents by dao.observeDocuments().collectAsStateWithLifecycle(initialValue = emptyList())
+    val term = query.trim()
+    val matchingReminders = reminders.filter { term.isNotEmpty() && it.title.contains(term, ignoreCase = true) }
+    val matchingTransactions = transactions.filter { term.isNotEmpty() && it.title.contains(term, ignoreCase = true) }
+    val matchingDocuments = documents.filter { term.isNotEmpty() && (it.name.contains(term, ignoreCase = true) || it.mimeType.contains(term, ignoreCase = true)) }
+
+    Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp, vertical = 16.dp)) {
+        Header("Find anything", "Search", "Search reminders, money records and saved files.")
+        Spacer(Modifier.height(14.dp))
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            leadingIcon = { Icon(Icons.Default.Search, null) },
+            trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Default.Close, "Clear search") } },
+            placeholder = { Text("Search LifeVault") }
+        )
+        Spacer(Modifier.height(12.dp))
+        if (term.isEmpty()) {
+            EmptyCard("Start typing to search", "Results update as you type.")
+        } else {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (matchingReminders.isNotEmpty()) {
+                    item { Text("REMINDERS", color = Muted, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold) }
+                    items(matchingReminders, key = { "r${it.id}" }) { item ->
+                        Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(14.dp)) {
+                            Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Notifications, null, tint = Forest)
+                                Spacer(Modifier.width(10.dp))
+                                Column(Modifier.weight(1f)) { Text(item.title, fontWeight = FontWeight.SemiBold); Text(if (item.isDone) "Completed" else "Reminder", color = Muted, style = MaterialTheme.typography.labelSmall) }
+                            }
+                        }
+                    }
+                }
+                if (matchingTransactions.isNotEmpty()) {
+                    item { Text("MONEY", color = Muted, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold) }
+                    items(matchingTransactions, key = { "t${it.id}" }) { item ->
+                        Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(14.dp)) {
+                            Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.AccountBalanceWallet, null, tint = Forest)
+                                Spacer(Modifier.width(10.dp))
+                                Column(Modifier.weight(1f)) { Text(item.title, fontWeight = FontWeight.SemiBold); Text(if (item.isIncome) "Income" else "Expense", color = Muted, style = MaterialTheme.typography.labelSmall) }
+                                Text(formatRupees(item.amountPaise), fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                }
+                if (matchingDocuments.isNotEmpty()) {
+                    item { Text("VAULT FILES", color = Muted, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold) }
+                    items(matchingDocuments, key = { "d${it.id}" }) { item ->
+                        Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(14.dp)) {
+                            Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.InsertDriveFile, null, tint = Forest)
+                                Spacer(Modifier.width(10.dp))
+                                Column(Modifier.weight(1f)) { Text(item.name, fontWeight = FontWeight.SemiBold); Text(item.mimeType, color = Muted, style = MaterialTheme.typography.labelSmall) }
+                            }
+                        }
+                    }
+                }
+                if (matchingReminders.isEmpty() && matchingTransactions.isEmpty() && matchingDocuments.isEmpty()) {
+                    item { EmptyCard("No matches found", "Try a different title or filename.") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsScreen(padding: PaddingValues, dao: VaultDao, onNavigate: (Destination) -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var dataMessage by remember { mutableStateOf("") }
+    var confirmRestore by remember { mutableStateOf(false) }
+    val exportPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) scope.launch {
+            dataMessage = runCatching { BackupRestore.export(context, uri, dao); "Backup saved successfully." }.getOrElse { "Backup failed: ${it.message ?: "unknown error"}" }
+            android.widget.Toast.makeText(context, dataMessage, android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+    val importPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) scope.launch {
+            dataMessage = runCatching { BackupRestore.restore(context, uri, dao); "Backup restored. Existing local records were replaced." }.getOrElse { "Restore failed: ${it.message ?: "unknown error"}" }
+            android.widget.Toast.makeText(context, dataMessage, android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
     val prefs = remember { context.getSharedPreferences("lifevault_settings", android.content.Context.MODE_PRIVATE) }
     var notifications by remember { mutableStateOf(prefs.getBoolean("notifications_enabled", true)) }
     var cacheMessage by remember { mutableStateOf("") }
@@ -262,6 +358,22 @@ private fun SettingsScreen(padding: PaddingValues, onNavigate: (Destination) -> 
         }
         item {
             Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp)) {
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Backup & restore", fontWeight = FontWeight.SemiBold)
+                    Text("Export your reminders, money records and vault index to a JSON file, or restore a previous backup.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                    OutlinedButton(onClick = { exportPicker.launch("LifeVault-backup-${System.currentTimeMillis()}.json") }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.FileDownload, null); Spacer(Modifier.width(8.dp)); Text("Create backup")
+                    }
+                    OutlinedButton(onClick = { confirmRestore = true }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.Restore, null); Spacer(Modifier.width(8.dp)); Text("Restore backup")
+                    }
+                    if (dataMessage.isNotBlank()) Text(dataMessage, color = Forest, style = MaterialTheme.typography.labelSmall)
+                    Text("Note: imported document files are not copied into the backup; only their saved references are included. References may not work after moving to another device.", color = Muted, style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp)) {
                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("App storage", fontWeight = FontWeight.SemiBold)
                     Text("Clear temporary cache files. Your vault entries and money records are not deleted.", color = Muted, style = MaterialTheme.typography.bodySmall)
@@ -290,6 +402,20 @@ private fun SettingsScreen(padding: PaddingValues, onNavigate: (Destination) -> 
         item { SettingsLink("Privacy policy", "How your data is handled", Icons.Default.PrivacyTip) { onNavigate(Destination.Privacy) } }
         item { SettingsLink("About LifeVault", "App information and version", Icons.Default.Info) { onNavigate(Destination.About) } }
         item { Text("LifeVault • Native Android • Local-first preview", color = Muted, style = MaterialTheme.typography.labelSmall) }
+    }
+    if (confirmRestore) {
+        AlertDialog(
+            onDismissRequest = { confirmRestore = false },
+            title = { Text("Replace local data?") },
+            text = { Text("Restoring a backup replaces the reminders, money entries and vault index currently stored on this device. Export a backup of the current data first if you may need it.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmRestore = false
+                    importPicker.launch(arrayOf("application/json", "text/*"))
+                }) { Text("Choose backup") }
+            },
+            dismissButton = { TextButton(onClick = { confirmRestore = false }) { Text("Cancel") } }
+        )
     }
 }
 
