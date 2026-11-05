@@ -44,7 +44,7 @@ class MainActivity : ComponentActivity() {
                 LifeVaultApp(dao,
                     onAddReminder = { title -> lifecycleScope.launch { dao.addReminder(ReminderEntity(title = title, dueAt = System.currentTimeMillis() + 86_400_000L)) } },
                     onCompleteReminder = { id -> lifecycleScope.launch { dao.completeReminder(id) } },
-                    onAddTransaction = { title, amount, income -> lifecycleScope.launch { dao.addTransaction(TransactionEntity(title, (amount * 100).toLong(), income)) } }
+                    onAddTransaction = { title, amount, income -> lifecycleScope.launch { dao.addTransaction(TransactionEntity(title = title, amountPaise = (amount * 100).toLong(), isIncome = income)) } }
                 )
             }
         }
