@@ -1,6 +1,8 @@
 package com.lifevault.app
 
 import android.os.Bundle
+import android.app.DatePickerDialog
+import android.app.TimePickerDialog
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -65,17 +67,20 @@ class MainActivity : FragmentActivity() {
         setContent {
             MaterialTheme(colorScheme = lightColorScheme(primary = Forest, onPrimary = Color.White, secondary = Color(0xFF789A82), background = Canvas, surface = Color.White, onSurface = Ink)) {
                 if (isUnlocked) LifeVaultApp(dao,
-                    onAddReminder = { title, repeatDays ->
+                    onAddReminder = { title, dueAt, repeatDays ->
                         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                         lifecycleScope.launch {
-                            val dueAt = System.currentTimeMillis() + 86_400_000L
-                            val id = dao.addReminder(ReminderEntity(title = title, dueAt = dueAt, repeatIntervalDays = repeatDays))
-                            val request = OneTimeWorkRequestBuilder<ReminderWorker>().setInitialDelay((dueAt - System.currentTimeMillis()).coerceAtLeast(0), TimeUnit.MILLISECONDS).setInputData(workDataOf("title" to title, "reminder_id" to id, "repeat_days" to repeatDays)).build()
-                            WorkManager.getInstance(this@MainActivity).enqueueUniqueWork("reminder_$id", androidx.work.ExistingWorkPolicy.REPLACE, request)
+                            runCatching {
+                                val id = dao.addReminder(ReminderEntity(title = title, dueAt = dueAt, repeatIntervalDays = repeatDays))
+                                ReminderScheduler.schedule(this@MainActivity, id, title, dueAt, repeatDays)
+                                LifeVaultWidgetProvider.refresh(this@MainActivity)
+                            }.onFailure { error ->
+                                android.widget.Toast.makeText(this@MainActivity, "Could not save reminder: ${error.message ?: "please try again"}", android.widget.Toast.LENGTH_LONG).show()
+                            }
                             LifeVaultWidgetProvider.refresh(this@MainActivity)
                         }
                     },
-                    onCompleteReminder = { id -> lifecycleScope.launch { dao.completeReminder(id); WorkManager.getInstance(this@MainActivity).cancelUniqueWork("reminder_$id"); LifeVaultWidgetProvider.refresh(this@MainActivity) } },
+                    onCompleteReminder = { id -> lifecycleScope.launch { dao.completeReminder(id); ReminderScheduler.cancel(this@MainActivity, id); LifeVaultWidgetProvider.refresh(this@MainActivity) } },
                     onAddTransaction = { title, amount, income, category -> lifecycleScope.launch { dao.addTransaction(TransactionEntity(title = title, amountPaise = (amount * 100).toLong(), isIncome = income, category = category)); LifeVaultWidgetProvider.refresh(this@MainActivity) } },
                     onBiometricLockChange = { enabled ->
                         val authenticators = BiometricManager.Authenticators.BIOMETRIC_WEAK
@@ -254,13 +259,15 @@ private fun BiometricUnlockScreen(onUnlock: () -> Unit) {
     }
 }
 
-@Composable private fun RemindersScreen(padding: PaddingValues, reminders: List<ReminderEntity>, onAdd: (String, Int) -> Unit, onComplete: (Long) -> Unit) {
+@Composable private fun RemindersScreen(padding: PaddingValues, reminders: List<ReminderEntity>, onAdd: (String, Long, Int) -> Unit, onComplete: (Long) -> Unit) {
+    val context = LocalContext.current
     var title by remember { mutableStateOf("") }
     var repeatDays by remember { mutableIntStateOf(0) }
+    var selectedAt by remember { mutableLongStateOf(System.currentTimeMillis() + TimeUnit.DAYS.toMillis(1)) }
     var show by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().padding(padding).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Header("Stay on track", "Reminders", "Small things, remembered.")
-        Button(onClick = { show = true }, shape = RoundedCornerShape(14.dp)) { Icon(Icons.Default.Add, null); Spacer(Modifier.width(6.dp)); Text("Add reminder") }
+        Button(onClick = { selectedAt = System.currentTimeMillis() + TimeUnit.DAYS.toMillis(1); show = true }, shape = RoundedCornerShape(14.dp)) { Icon(Icons.Default.Add, null); Spacer(Modifier.width(6.dp)); Text("Add reminder") }
         if (reminders.isEmpty()) EmptyCard("Nothing scheduled", "Create your first reminder.") else LazyColumn(verticalArrangement = Arrangement.spacedBy(9.dp)) { items(reminders, key = { it.id }) { ReminderRow(it, onComplete) } }
     }
     if (show) AlertDialog(
@@ -268,15 +275,62 @@ private fun BiometricUnlockScreen(onUnlock: () -> Unit) {
         title = { Text("New reminder") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             OutlinedTextField(title, { title = it }, label = { Text("Reminder title") }, singleLine = true)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = {
+                    val cal = java.util.Calendar.getInstance().apply { timeInMillis = selectedAt }
+                    DatePickerDialog(context, { _, year, month, day ->
+                        val updated = java.util.Calendar.getInstance().apply {
+                            timeInMillis = selectedAt
+                            set(java.util.Calendar.YEAR, year)
+                            set(java.util.Calendar.MONTH, month)
+                            set(java.util.Calendar.DAY_OF_MONTH, day)
+                            set(java.util.Calendar.SECOND, 0)
+                            set(java.util.Calendar.MILLISECOND, 0)
+                        }
+                        selectedAt = updated.timeInMillis
+                    }, cal.get(java.util.Calendar.YEAR), cal.get(java.util.Calendar.MONTH), cal.get(java.util.Calendar.DAY_OF_MONTH)).apply {
+                        datePicker.minDate = System.currentTimeMillis() - 1000L
+                    }.show()
+                }, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Default.CalendarMonth, null); Spacer(Modifier.width(5.dp))
+                    Text(SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(selectedAt)), maxLines = 1)
+                }
+                OutlinedButton(onClick = {
+                    val cal = java.util.Calendar.getInstance().apply { timeInMillis = selectedAt }
+                    TimePickerDialog(context, { _, hour, minute ->
+                        val updated = java.util.Calendar.getInstance().apply {
+                            timeInMillis = selectedAt
+                            set(java.util.Calendar.HOUR_OF_DAY, hour)
+                            set(java.util.Calendar.MINUTE, minute)
+                            set(java.util.Calendar.SECOND, 0)
+                            set(java.util.Calendar.MILLISECOND, 0)
+                        }
+                        selectedAt = updated.timeInMillis
+                    }, cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE), false).show()
+                }, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Default.AccessTime, null); Spacer(Modifier.width(5.dp))
+                    Text(SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date(selectedAt)))
+                }
+            }
+            Text("Choose the date and time for this reminder.", color = Muted, style = MaterialTheme.typography.bodySmall)
             Text("Repeat", style = MaterialTheme.typography.labelMedium)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf(0 to "Never", 1 to "Daily", 7 to "Weekly", 30 to "Every 30d").forEach { (days, label) ->
                     FilterChip(selected = repeatDays == days, onClick = { repeatDays = days }, label = { Text(label) })
                 }
             }
-            Text("First alert is scheduled for 24 hours from now. Repeats are scheduled after each alert.", color = Muted, style = MaterialTheme.typography.bodySmall)
+            Text("Notifications: 24 hours before, then every hour during the final 5 hours, plus an alert at the scheduled time. Alerts that are already in the past are skipped.", color = Muted, style = MaterialTheme.typography.bodySmall)
         } },
-        confirmButton = { TextButton(onClick = { if (title.isNotBlank()) { onAdd(title.trim(), repeatDays); title = ""; repeatDays = 0; show = false } }) { Text("Save") } },
+        confirmButton = { TextButton(onClick = {
+            if (title.isNotBlank() && selectedAt > System.currentTimeMillis()) {
+                onAdd(title.trim(), selectedAt, repeatDays)
+                title = ""
+                repeatDays = 0
+                show = false
+            } else if (selectedAt <= System.currentTimeMillis()) {
+                android.widget.Toast.makeText(context, "Choose a future date and time.", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }) { Text("Save") } },
         dismissButton = { TextButton(onClick = { show = false }) { Text("Cancel") } }
     )
 }
