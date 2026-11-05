@@ -60,6 +60,13 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val dao = VaultDatabase.get(this).vaultDao()
+        lifecycleScope.launch {
+            runCatching {
+                dao.allReminders().filterNot { it.isDone }.forEach { reminder ->
+                    ReminderScheduler.schedule(this@MainActivity, reminder.id, reminder.title, reminder.dueAt, reminder.repeatIntervalDays)
+                }
+            }
+        }
         val widgetPrefs = getSharedPreferences("lifevault_settings", MODE_PRIVATE)
         val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
         val lockPrefs = getSharedPreferences("lifevault_settings", MODE_PRIVATE)
@@ -77,7 +84,6 @@ class MainActivity : FragmentActivity() {
                             }.onFailure { error ->
                                 android.widget.Toast.makeText(this@MainActivity, "Could not save reminder: ${error.message ?: "please try again"}", android.widget.Toast.LENGTH_LONG).show()
                             }
-                            LifeVaultWidgetProvider.refresh(this@MainActivity)
                         }
                     },
                     onCompleteReminder = { id -> lifecycleScope.launch { dao.completeReminder(id); ReminderScheduler.cancel(this@MainActivity, id); LifeVaultWidgetProvider.refresh(this@MainActivity) } },
@@ -289,7 +295,12 @@ private fun BiometricUnlockScreen(onUnlock: () -> Unit) {
                         }
                         selectedAt = updated.timeInMillis
                     }, cal.get(java.util.Calendar.YEAR), cal.get(java.util.Calendar.MONTH), cal.get(java.util.Calendar.DAY_OF_MONTH)).apply {
-                        datePicker.minDate = System.currentTimeMillis() - 1000L
+                        datePicker.minDate = java.util.Calendar.getInstance().apply {
+                            set(java.util.Calendar.HOUR_OF_DAY, 0)
+                            set(java.util.Calendar.MINUTE, 0)
+                            set(java.util.Calendar.SECOND, 0)
+                            set(java.util.Calendar.MILLISECOND, 0)
+                        }.timeInMillis
                     }.show()
                 }, modifier = Modifier.weight(1f)) {
                     Icon(Icons.Default.CalendarMonth, null); Spacer(Modifier.width(5.dp))
