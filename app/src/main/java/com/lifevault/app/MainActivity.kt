@@ -56,17 +56,17 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme(colorScheme = lightColorScheme(primary = Forest, onPrimary = Color.White, secondary = Color(0xFF789A82), background = Canvas, surface = Color.White, onSurface = Ink)) {
                 LifeVaultApp(dao,
-                    onAddReminder = { title ->
+                    onAddReminder = { title, repeatDays ->
                         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                         lifecycleScope.launch {
                             val dueAt = System.currentTimeMillis() + 86_400_000L
-                            val id = dao.addReminder(ReminderEntity(title = title, dueAt = dueAt))
-                            val request = OneTimeWorkRequestBuilder<ReminderWorker>().setInitialDelay((dueAt - System.currentTimeMillis()).coerceAtLeast(0), TimeUnit.MILLISECONDS).setInputData(workDataOf("title" to title, "reminder_id" to id)).build()
+                            val id = dao.addReminder(ReminderEntity(title = title, dueAt = dueAt, repeatIntervalDays = repeatDays))
+                            val request = OneTimeWorkRequestBuilder<ReminderWorker>().setInitialDelay((dueAt - System.currentTimeMillis()).coerceAtLeast(0), TimeUnit.MILLISECONDS).setInputData(workDataOf("title" to title, "reminder_id" to id, "repeat_days" to repeatDays)).build()
                             WorkManager.getInstance(this@MainActivity).enqueueUniqueWork("reminder_$id", androidx.work.ExistingWorkPolicy.REPLACE, request)
                         }
                     },
                     onCompleteReminder = { id -> lifecycleScope.launch { dao.completeReminder(id); WorkManager.getInstance(this@MainActivity).cancelUniqueWork("reminder_$id") } },
-                    onAddTransaction = { title, amount, income -> lifecycleScope.launch { dao.addTransaction(TransactionEntity(title = title, amountPaise = (amount * 100).toLong(), isIncome = income)) } }
+                    onAddTransaction = { title, amount, income, category -> lifecycleScope.launch { dao.addTransaction(TransactionEntity(title = title, amountPaise = (amount * 100).toLong(), isIncome = income, category = category)) } }
                 )
             }
         }
@@ -76,7 +76,7 @@ class MainActivity : ComponentActivity() {
 private enum class Destination(val label: String) { Home("Home"), Vault("Vault"), Reminders("Reminders"), Money("Money"), HomeCare("Home care"), Search("Search"), Settings("Settings"), About("About"), Guide("Guide"), Terms("Terms"), Privacy("Privacy") }
 
 @Composable
-private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String) -> Unit, onCompleteReminder: (Long) -> Unit, onAddTransaction: (String, Double, Boolean) -> Unit) {
+private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String, Int) -> Unit, onCompleteReminder: (Long) -> Unit, onAddTransaction: (String, Double, Boolean, String) -> Unit) {
     var selected by remember { mutableStateOf(Destination.Home) }
     val reminders by dao.observeReminders().collectAsStateWithLifecycle(initialValue = emptyList())
     val transactions by dao.observeTransactions().collectAsStateWithLifecycle(initialValue = emptyList())
@@ -90,7 +90,7 @@ private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String) -> Unit, onCompl
             Destination.Home -> HomeScreen(padding, reminders, transactions, onCompleteReminder, onSearch = { selected = Destination.Search }, onSettings = { selected = Destination.Settings })
             Destination.Vault -> VaultScreen(padding, dao)
             Destination.Reminders -> RemindersScreen(padding, reminders, onAddReminder, onCompleteReminder)
-            Destination.Money -> MoneyScreen(padding, transactions, onAddTransaction)
+            Destination.Money -> MoneyScreen(padding, transactions, dao, onAddTransaction)
             Destination.HomeCare -> FeatureScreen(padding, "Home care", "Appliances, service history and maintenance.", Icons.Default.HomeRepairService, "Appliance records and maintenance schedules are planned next.")
             Destination.Settings -> SettingsScreen(padding, dao, onNavigate = { selected = it })
             Destination.Search -> SearchScreen(padding, dao, reminders, transactions)
@@ -105,6 +105,9 @@ private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String) -> Unit, onCompl
 @Composable private fun VaultScreen(padding: PaddingValues, dao: VaultDao) {
     val context = LocalContext.current
     val documents by dao.observeDocuments().collectAsStateWithLifecycle(initialValue = emptyList())
+    var folder by remember { mutableStateOf("General") }
+    var tags by remember { mutableStateOf("") }
+    var folderFilter by remember { mutableStateOf("All") }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
@@ -112,25 +115,33 @@ private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String) -> Unit, onCompl
                 if (cursor.moveToFirst()) cursor.getString(0) else null
             } ?: "Imported file"
             val mime = context.contentResolver.getType(uri) ?: "application/octet-stream"
-            (context as? ComponentActivity)?.lifecycleScope?.launch { dao.addDocument(DocumentEntity(name = name, uri = uri.toString(), mimeType = mime)) }
+            (context as? ComponentActivity)?.lifecycleScope?.launch { dao.addDocument(DocumentEntity(name = name, uri = uri.toString(), mimeType = mime, folder = folder.trim().ifBlank { "General" }, tags = tags.trim())) }
         }
     }
     Column(Modifier.fillMaxSize().padding(padding).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Header("Your private space", "Document vault", "Keep important files organised on this device.")
+        OutlinedTextField(folder, { folder = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Folder for new files") }, singleLine = true)
+        OutlinedTextField(tags, { tags = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Tags (comma separated)") }, singleLine = true)
         Button(onClick = { picker.launch(arrayOf("*/*")) }, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
             Icon(Icons.Default.UploadFile, null); Spacer(Modifier.width(8.dp)); Text("Import files")
         }
         Text("Files stay on this device. You can open them from LifeVault whenever you need them.", color = Muted, style = MaterialTheme.typography.bodySmall)
+        val folders = listOf("All") + documents.map { it.folder }.distinct().sorted()
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            folders.forEach { name -> FilterChip(selected = folderFilter == name, onClick = { folderFilter = name }, label = { Text(name) }) }
+        }
+        val visibleDocuments = if (folderFilter == "All") documents else documents.filter { it.folder == folderFilter }
         if (documents.isEmpty()) EmptyCard("Your vault is empty", "Import PDFs, images and other documents to get started.")
         else LazyColumn(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            items(documents, key = { it.id }) { file ->
+            items(visibleDocuments, key = { it.id }) { file ->
                 Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(16.dp)) {
                     Row(Modifier.fillMaxWidth().padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.InsertDriveFile, null, tint = Forest, modifier = Modifier.size(28.dp))
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(file.name, fontWeight = FontWeight.SemiBold, maxLines = 2)
-                            Text(file.mimeType, color = Muted, style = MaterialTheme.typography.labelSmall)
+                            Text("${file.folder} • ${file.mimeType}", color = Muted, style = MaterialTheme.typography.labelSmall)
+                            if (file.tags.isNotBlank()) Text(file.tags, color = Muted, style = MaterialTheme.typography.labelSmall)
                         }
                         IconButton(onClick = {
                             runCatching {
@@ -183,24 +194,90 @@ private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String) -> Unit, onCompl
     }
 }
 
-@Composable private fun RemindersScreen(padding: PaddingValues, reminders: List<ReminderEntity>, onAdd: (String) -> Unit, onComplete: (Long) -> Unit) {
-    var title by remember { mutableStateOf("") }; var show by remember { mutableStateOf(false) }
+@Composable private fun RemindersScreen(padding: PaddingValues, reminders: List<ReminderEntity>, onAdd: (String, Int) -> Unit, onComplete: (Long) -> Unit) {
+    var title by remember { mutableStateOf("") }
+    var repeatDays by remember { mutableIntStateOf(0) }
+    var show by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().padding(padding).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Header("Stay on track", "Reminders", "Small things, remembered.")
         Button(onClick = { show = true }, shape = RoundedCornerShape(14.dp)) { Icon(Icons.Default.Add, null); Spacer(Modifier.width(6.dp)); Text("Add reminder") }
         if (reminders.isEmpty()) EmptyCard("Nothing scheduled", "Create your first reminder.") else LazyColumn(verticalArrangement = Arrangement.spacedBy(9.dp)) { items(reminders, key = { it.id }) { ReminderRow(it, onComplete) } }
     }
-    if (show) AlertDialog(onDismissRequest = { show = false }, title = { Text("New reminder") }, text = { OutlinedTextField(title, { title = it }, label = { Text("Reminder title") }, singleLine = true) }, confirmButton = { TextButton(onClick = { if (title.isNotBlank()) { onAdd(title.trim()); title = ""; show = false } }) { Text("Save") } }, dismissButton = { TextButton(onClick = { show = false }) { Text("Cancel") } })
+    if (show) AlertDialog(
+        onDismissRequest = { show = false },
+        title = { Text("New reminder") },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedTextField(title, { title = it }, label = { Text("Reminder title") }, singleLine = true)
+            Text("Repeat", style = MaterialTheme.typography.labelMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(0 to "Never", 1 to "Daily", 7 to "Weekly", 30 to "Monthly").forEach { (days, label) ->
+                    FilterChip(selected = repeatDays == days, onClick = { repeatDays = days }, label = { Text(label) })
+                }
+            }
+            Text("First alert is scheduled for 24 hours from now. Repeats are scheduled after each alert.", color = Muted, style = MaterialTheme.typography.bodySmall)
+        } },
+        confirmButton = { TextButton(onClick = { if (title.isNotBlank()) { onAdd(title.trim(), repeatDays); title = ""; repeatDays = 0; show = false } }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = { show = false }) { Text("Cancel") } }
+    )
 }
 
-@Composable private fun MoneyScreen(padding: PaddingValues, transactions: List<TransactionEntity>, onAdd: (String, Double, Boolean) -> Unit) {
-    var title by remember { mutableStateOf("") }; var amount by remember { mutableStateOf("") }; var income by remember { mutableStateOf(false) }; var show by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxSize().padding(padding).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+@Composable private fun MoneyScreen(padding: PaddingValues, transactions: List<TransactionEntity>, dao: VaultDao, onAdd: (String, Double, Boolean, String) -> Unit) {
+    val budgets by dao.observeBudgets().collectAsStateWithLifecycle(initialValue = emptyList())
+    val categories = listOf("Food", "Transport", "Bills", "Shopping", "Health", "Education", "Entertainment", "Home", "Other")
+    var title by remember { mutableStateOf("") }
+    var amount by remember { mutableStateOf("") }
+    var income by remember { mutableStateOf(false) }
+    var category by remember { mutableStateOf("Food") }
+    var show by remember { mutableStateOf(false) }
+    var budgetCategory by remember { mutableStateOf("Food") }
+    var budgetAmount by remember { mutableStateOf("") }
+    var showBudget by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val monthStart = remember { java.util.Calendar.getInstance().apply { set(java.util.Calendar.DAY_OF_MONTH, 1); set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0); set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0) }.timeInMillis }
+    val monthExpenses = transactions.filter { !it.isIncome && it.createdAt >= monthStart }.groupBy { it.category }.mapValues { entry -> entry.value.sumOf { it.amountPaise } }
+    Column(Modifier.fillMaxSize().padding(padding).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Header("Know where it goes", "Money", "A simple, private spending log.")
-        Button(onClick = { show = true }, shape = RoundedCornerShape(14.dp)) { Icon(Icons.Default.Add, null); Spacer(Modifier.width(6.dp)); Text("Add transaction") }
-        if (transactions.isEmpty()) EmptyCard("No transactions yet", "Add income or an expense to get started.") else LazyColumn(verticalArrangement = Arrangement.spacedBy(9.dp)) { items(transactions, key = { it.id }) { item -> Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(16.dp)) { Row(Modifier.fillMaxWidth().padding(15.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(item.title, fontWeight = FontWeight.SemiBold); Text(if (item.isIncome) "Income" else "Expense", color = Muted, style = MaterialTheme.typography.labelSmall) }; Text((if (item.isIncome) "+" else "−") + formatRupees(item.amountPaise), color = if (item.isIncome) Forest else Ink, fontWeight = FontWeight.SemiBold) } } } }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { show = true }, shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f)) { Icon(Icons.Default.Add, null); Spacer(Modifier.width(6.dp)); Text("Add transaction") }
+            OutlinedButton(onClick = { showBudget = true }, shape = RoundedCornerShape(14.dp)) { Icon(Icons.Default.Flag, null); Spacer(Modifier.width(5.dp)); Text("Budget") }
+        }
+        Text("Monthly budgets", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        if (budgets.isEmpty()) Text("Set a category budget to track monthly spending.", color = Muted, style = MaterialTheme.typography.bodySmall)
+        budgets.forEach { budget ->
+            val spent = monthExpenses[budget.category] ?: 0L
+            val progress = (spent.toFloat() / budget.monthlyLimitPaise.coerceAtLeast(1)).coerceIn(0f, 1f)
+            Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(14.dp)) {
+                Column(Modifier.fillMaxWidth().padding(13.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Row { Text(budget.category, Modifier.weight(1f), fontWeight = FontWeight.SemiBold); Text("${formatRupees(spent)} / ${formatRupees(budget.monthlyLimitPaise)}", style = MaterialTheme.typography.labelSmall) }
+                    LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+                    if (spent > budget.monthlyLimitPaise) Text("Budget exceeded", color = Color(0xFFB45309), style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+        Text("Transactions", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        if (transactions.isEmpty()) EmptyCard("No transactions yet", "Add income or an expense to get started.") else LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            items(transactions, key = { it.id }) { item ->
+                Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(16.dp)) {
+                    Row(Modifier.fillMaxWidth().padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) { Text(item.title, fontWeight = FontWeight.SemiBold); Text("${if (item.isIncome) "Income" else "Expense"} • ${item.category}", color = Muted, style = MaterialTheme.typography.labelSmall) }
+                        Text((if (item.isIncome) "+" else "−") + formatRupees(item.amountPaise), color = if (item.isIncome) Forest else Ink, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
     }
-    if (show) AlertDialog(onDismissRequest = { show = false }, title = { Text("New transaction") }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedTextField(title, { title = it }, label = { Text("Description") }, singleLine = true); OutlinedTextField(amount, { amount = it.filter { c -> c.isDigit() || c == '.' } }, label = { Text("Amount in ₹") }, singleLine = true); Row { FilterChip(selected = !income, onClick = { income = false }, label = { Text("Expense") }); Spacer(Modifier.width(8.dp)); FilterChip(selected = income, onClick = { income = true }, label = { Text("Income") }) } } }, confirmButton = { TextButton(onClick = { val value = amount.toDoubleOrNull(); if (title.isNotBlank() && value != null && value > 0) { onAdd(title.trim(), value, income); title = ""; amount = ""; show = false } }) { Text("Save") } }, dismissButton = { TextButton(onClick = { show = false }) { Text("Cancel") } })
+    if (show) AlertDialog(onDismissRequest = { show = false }, title = { Text("New transaction") }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(title, { title = it }, label = { Text("Description") }, singleLine = true)
+        OutlinedTextField(amount, { amount = it.filter { c -> c.isDigit() || c == '.' } }, label = { Text("Amount in ₹") }, singleLine = true)
+        Row { FilterChip(selected = !income, onClick = { income = false }, label = { Text("Expense") }); Spacer(Modifier.width(8.dp)); FilterChip(selected = income, onClick = { income = true }, label = { Text("Income") }) }
+        Text("Category", style = MaterialTheme.typography.labelMedium)
+        Column { categories.chunked(3).forEach { group -> Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) { group.forEach { item -> FilterChip(selected = category == item, onClick = { category = item }, label = { Text(item) }) } } } }
+    } }, confirmButton = { TextButton(onClick = { val value = amount.toDoubleOrNull(); if (title.isNotBlank() && value != null && value > 0) { onAdd(title.trim(), value, income, category); title = ""; amount = ""; show = false } }) { Text("Save") } }, dismissButton = { TextButton(onClick = { show = false }) { Text("Cancel") } })
+    if (showBudget) AlertDialog(onDismissRequest = { showBudget = false }, title = { Text("Set monthly budget") }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Choose a category and spending limit in ₹.")
+        categories.chunked(3).forEach { group -> Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) { group.forEach { item -> FilterChip(selected = budgetCategory == item, onClick = { budgetCategory = item }, label = { Text(item) }) } } }
+        OutlinedTextField(budgetAmount, { budgetAmount = it.filter { c -> c.isDigit() || c == '.' } }, label = { Text("Monthly limit in ₹") }, singleLine = true)
+    } }, confirmButton = { TextButton(onClick = { val value = budgetAmount.toDoubleOrNull(); if (value != null && value > 0) { scope.launch { dao.saveBudget(BudgetEntity(budgetCategory, (value * 100).toLong())) }; budgetAmount = ""; showBudget = false } }) { Text("Save budget") } }, dismissButton = { TextButton(onClick = { showBudget = false }) { Text("Cancel") } })
 }
 
 @Composable private fun FeatureScreen(padding: PaddingValues, title: String, subtitle: String, icon: androidx.compose.ui.graphics.vector.ImageVector, note: String) {
