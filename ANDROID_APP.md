@@ -14,7 +14,11 @@ GitHub Actions builds a debug APK on pushes to `feature/lifevault-android-native
 ## Current native functionality
 - Native Compose navigation across Home, Vault, Reminders, Money and Home care.
 - Offline Room persistence for reminders, transactions, budgets and document metadata.
-- Recurring reminders, notification preferences and WorkManager scheduling.
+- Calendar date and clock-time selection for each reminder.
+- Reminder alerts scheduled 24 hours before, then hourly during the final five hours, plus an alert at the due time. Past alert stages are skipped when a reminder is created less than 24 hours or five hours ahead.
+- Daily, weekly and 30-day recurring reminders advance to the next due date after the due-time alert.
+- Pending reminder schedules are rebuilt when the app opens; completing a reminder cancels its pending alerts.
+- Notification preferences and WorkManager scheduling. Android battery controls can still delay background work, and notification permission must be allowed.
 - Manual income/expense records, categories and monthly budgets.
 - Vault import through Android's document picker, folders, tags, filtering and name/date sorting.
 - Local JSON backup/restore. Document bytes are not embedded; the backup contains their metadata and URI references.
