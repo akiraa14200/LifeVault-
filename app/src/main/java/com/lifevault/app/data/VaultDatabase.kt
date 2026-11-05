@@ -22,6 +22,8 @@ data class BudgetEntity(@PrimaryKey val category: String, val monthlyLimitPaise:
 interface VaultDao {
     @Query("SELECT * FROM reminders ORDER BY isDone ASC, dueAt ASC") fun observeReminders(): Flow<List<ReminderEntity>>
     @Query("SELECT * FROM reminders ORDER BY id ASC") suspend fun allReminders(): List<ReminderEntity>
+    @Query("SELECT * FROM reminders WHERE id = :id LIMIT 1") suspend fun getReminder(id: Long): ReminderEntity?
+    @Query("UPDATE reminders SET dueAt = :newDueAt WHERE id = :id AND isDone = 0") suspend fun advanceReminder(id: Long, newDueAt: Long)
     @Query("SELECT * FROM budgets ORDER BY category ASC") fun observeBudgets(): Flow<List<BudgetEntity>>
     @Query("SELECT * FROM budgets ORDER BY category ASC") suspend fun allBudgets(): List<BudgetEntity>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveBudget(budget: BudgetEntity)
