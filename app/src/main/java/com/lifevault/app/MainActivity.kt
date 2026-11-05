@@ -88,6 +88,8 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val dao = VaultDatabase.get(this).vaultDao()
+        val backupPrefs = getSharedPreferences("lifevault_settings", MODE_PRIVATE)
+        if (backupPrefs.getBoolean("automatic_backups_enabled", true)) AutomaticBackupWorker.schedule(this)
         lifecycleScope.launch {
             runCatching {
                 dao.allReminders().filterNot { it.isDone }.forEach { reminder ->
@@ -807,6 +809,7 @@ private fun SettingsScreen(padding: PaddingValues, dao: VaultDao, onNavigate: (D
     val prefs = remember { context.getSharedPreferences("lifevault_settings", android.content.Context.MODE_PRIVATE) }
     var notifications by remember { mutableStateOf(prefs.getBoolean("notifications_enabled", true)) }
     var biometricLock by remember { mutableStateOf(prefs.getBoolean("biometric_lock_enabled", false)) }
+    var automaticBackups by remember { mutableStateOf(prefs.getBoolean("automatic_backups_enabled", true)) }
     var cacheMessage by remember { mutableStateOf("") }
 
     LazyColumn(
@@ -876,7 +879,24 @@ private fun SettingsScreen(padding: PaddingValues, dao: VaultDao, onNavigate: (D
             Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp)) {
                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Backup & restore", fontWeight = FontWeight.SemiBold)
-                    Text("Export your reminders, money records and vault index to a JSON file, or restore a previous backup.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                    Text("Automatic backups run about once a day and keep the seven newest local copies. They include reminders, money, budgets, planner tasks, habits and vault references.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Automatic local backups", fontWeight = FontWeight.Medium)
+                            Text("Saved privately in LifeVault app storage", color = Muted, style = MaterialTheme.typography.bodySmall)
+                        }
+                        Switch(checked = automaticBackups, onCheckedChange = { enabled ->
+                            automaticBackups = enabled
+                            prefs.edit().putBoolean("automatic_backups_enabled", enabled).apply()
+                            if (enabled) AutomaticBackupWorker.schedule(context) else AutomaticBackupWorker.cancel(context)
+                        })
+                    }
+                    OutlinedButton(onClick = {
+                        AutomaticBackupWorker.runNow(context)
+                        dataMessage = "A local backup has been queued."
+                    }, modifier = Modifier.fillMaxWidth(), enabled = automaticBackups) {
+                        Icon(Icons.Default.Backup, null); Spacer(Modifier.width(8.dp)); Text("Back up now")
+                    }
                     OutlinedButton(onClick = { exportPicker.launch("LifeVault-backup-${System.currentTimeMillis()}.json") }, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Default.FileDownload, null); Spacer(Modifier.width(8.dp)); Text("Create backup")
                     }
@@ -884,7 +904,7 @@ private fun SettingsScreen(padding: PaddingValues, dao: VaultDao, onNavigate: (D
                         Icon(Icons.Default.Restore, null); Spacer(Modifier.width(8.dp)); Text("Restore backup")
                     }
                     if (dataMessage.isNotBlank()) Text(dataMessage, color = Forest, style = MaterialTheme.typography.labelSmall)
-                    Text("Note: imported document files are not copied into the backup; only their saved references are included. References may not work after moving to another device.", color = Muted, style = MaterialTheme.typography.labelSmall)
+                    Text("Note: original imported files are not copied; only their references and metadata are included. References may not work after moving to another device. Automatic backups are local and are removed if app data is cleared or the app is uninstalled.", color = Muted, style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
