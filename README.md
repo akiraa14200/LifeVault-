@@ -1,31 +1,35 @@
 # LifeVault
 
-LifeVault is a personal life organiser for documents, reminders, expenses, subscriptions and home maintenance.
+LifeVault is a native Android personal organiser for documents, reminders, expenses, subscriptions, calendar events and home maintenance.
 
-## Stack
-- Next.js App Router + TypeScript
-- Tailwind CSS + Lucide
-- Supabase Auth, Postgres and private Storage
-- Vercel deployment target
+## Active Android implementation
+- Kotlin + Jetpack Compose + Material 3
+- Room database for on-device records and offline-first use
+- Native Android navigation and edge-to-edge layout
+- Android SDK 36, minimum Android 8.0 (API 26)
+- Package: com.lifevault.app
 
-## Current status
-The current development branch includes a responsive dashboard preview, Supabase SSR clients, email/password sign-up and sign-in, email confirmation callback, password reset, protected server session middleware, and a connected dashboard for reminder CRUD (create/complete) and manual expense/income creation. Owner-scoped RLS and private Storage migrations are included. Apply both migrations and configure Supabase Auth URLs before testing. Scheduled notifications, document uploads, subscriptions, maintenance, calendar, export/deletion and verified billing remain on the roadmap.
+The native Android rebuild is being developed on `feature/lifevault-android-native`. The earlier Next.js/Supabase frontend remains in the repository as a legacy prototype; it is not the Android application and is not loaded through a WebView.
 
-## Local setup
-1. Install Node.js 20.9+.
-2. Run `npm install`.
-3. Copy `.env.example` to `.env.local` and add your Supabase project URL and anon/publishable key.
-4. Apply `supabase/migrations/0001_initial_schema.sql` in the Supabase SQL Editor.
-5. Run `npm run dev`.
+## Build an APK
+The GitHub Actions workflow `.github/workflows/android-apk.yml` builds a debug APK on pushes to the native branch. Open the workflow run and download the `LifeVault-debug-apk` artifact. A local build requires JDK 17, Android SDK 36 and Gradle 8.13:
 
-Never put the Supabase service-role key in a `NEXT_PUBLIC_` variable or commit real secrets.
+```bash
+gradle --no-daemon :app:assembleDebug
+```
 
-## Roadmap
-1. Auth, onboarding and protected routes.
-2. Real document vault with signed URLs and upload validation.
-3. Reminders and server-scheduled notification delivery.
-4. Expenses, budgets, subscriptions and home-care CRUD.
-5. Unified calendar, settings, export/delete and plan entitlements.
-6. Automated tests, accessibility and production deployment.
+Output: `app/build/outputs/apk/debug/app-debug.apk`.
 
-See [SETUP.md](./SETUP.md), [DATABASE.md](./DATABASE.md), [SECURITY.md](./SECURITY.md), [FEATURES.md](./FEATURES.md), and [DEPLOYMENT.md](./DEPLOYMENT.md).
+## Current native milestone
+- Home dashboard with local summaries
+- Room-backed reminders: create and complete
+- Room-backed income and expense records
+- Native tabs for Home, Vault, Reminders, Money and Home care
+
+The Vault and Home care tabs are currently screen placeholders. Document picking, scheduled notifications, calendar, budgets, subscriptions, appliance records, settings and backup are planned follow-up milestones.
+
+## Backend
+The Android app does not currently require Supabase credentials. Data added in this milestone stays on the device. Supabase sync/authentication will be added only when backend integration is requested.
+
+## Legacy web prototype
+The previous Next.js implementation and its Supabase schema/migrations remain available in the repository for reference. They are separate from the native Android build.
