@@ -12,7 +12,7 @@ const credentials = z.object({
 
 function safeNext(value: FormDataEntryValue | null) {
   const path = typeof value === "string" ? value : "";
-  return path.startsWith("/") && !path.startsWith("//") ? path : "/dashboard";
+  return path.startsWith("/") && !path.startsWith("//") && !path.includes("\\\\") ? path : "/dashboard";
 }
 
 export async function signIn(formData: FormData) {
