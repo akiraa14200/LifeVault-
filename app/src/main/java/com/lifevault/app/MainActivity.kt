@@ -22,7 +22,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.background
+import androidx.compose.animation.core.LinearEasing\nimport androidx.compose.animation.core.RepeatMode\nimport androidx.compose.animation.core.animateFloat\nimport androidx.compose.animation.core.animateFloatAsState\nimport androidx.compose.animation.core.infiniteRepeatable\nimport androidx.compose.animation.core.rememberInfiniteTransition\nimport androidx.compose.animation.core.tween\nimport androidx.compose.foundation.Canvas\nimport androidx.compose.foundation.background
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -38,7 +38,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush\nimport androidx.compose.ui.graphics.Color\nimport androidx.compose.ui.graphics.Path\nimport androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -56,7 +56,7 @@ import java.util.concurrent.TimeUnit
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.Locale
+import java.util.Locale\nimport kotlin.math.sin
 
 private val Forest = Color(0xFF234C3D)
 private val Mint = Color(0xFFE5F1E9)
@@ -497,20 +497,14 @@ private fun loadDocumentPreview(context: Context, uri: Uri, mimeType: String): a
     val spendChange = if (previousMonthExpenseTotal > 0L) ((monthExpenseTotal - previousMonthExpenseTotal).toDouble() / previousMonthExpenseTotal.toDouble() * 100.0) else null
     Column(Modifier.fillMaxSize().padding(padding).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Header("Know where it goes", "Money", "A simple, private spending log.")
-        Card(colors = CardDefaults.cardColors(containerColor = Forest), shape = RoundedCornerShape(20.dp)) {
-            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(Date(monthStart)), color = Color.White.copy(alpha = .75f), style = MaterialTheme.typography.labelLarge)
-                Text("Monthly overview", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Column(Modifier.weight(1f)) { Text("Income", color = Color.White.copy(alpha = .72f), style = MaterialTheme.typography.labelSmall); Text(formatRupees(monthIncomeTotal), color = Color.White, fontWeight = FontWeight.SemiBold) }
-                    Column(Modifier.weight(1f)) { Text("Expenses", color = Color.White.copy(alpha = .72f), style = MaterialTheme.typography.labelSmall); Text(formatRupees(monthExpenseTotal), color = Color.White, fontWeight = FontWeight.SemiBold) }
-                    Column(Modifier.weight(1f)) { Text("Net", color = Color.White.copy(alpha = .72f), style = MaterialTheme.typography.labelSmall); Text(formatRupees(monthIncomeTotal - monthExpenseTotal), color = Color.White, fontWeight = FontWeight.SemiBold) }
-                }
-                HorizontalDivider(color = Color.White.copy(alpha = .22f))
-                Text(if (leadingCategory != null) "Top category: ${leadingCategory.key} • ${formatRupees(leadingCategory.value)}" else "No expenses recorded this month yet.", color = Color.White, style = MaterialTheme.typography.bodySmall)
-                Text(when { spendChange == null -> "No previous-month comparison available yet."; spendChange > 0 -> "Spending is ${String.format(Locale.getDefault(), "%.0f", spendChange)}% higher than last month."; spendChange < 0 -> "Spending is ${String.format(Locale.getDefault(), "%.0f", -spendChange)}% lower than last month."; else -> "Spending matches last month." }, color = Color.White.copy(alpha = .78f), style = MaterialTheme.typography.bodySmall)
-            }
-        }
+        LiquidOverviewCard(
+            monthLabel = SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(Date(monthStart)),
+            income = monthIncomeTotal,
+            expenses = monthExpenseTotal,
+            net = monthIncomeTotal - monthExpenseTotal,
+            topCategoryText = if (leadingCategory != null) "Top category: ${leadingCategory.key} • ${formatRupees(leadingCategory.value)}" else "No expenses recorded this month yet.",
+            comparisonText = when { spendChange == null -> "No previous-month comparison available yet."; spendChange > 0 -> "Spending is ${String.format(Locale.getDefault(), "%.0f", spendChange)}% higher than last month."; spendChange < 0 -> "Spending is ${String.format(Locale.getDefault(), "%.0f", -spendChange)}% lower than last month."; else -> "Spending matches last month." }
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { show = true }, shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f)) { Icon(Icons.Default.Add, null); Spacer(Modifier.width(6.dp)); Text("Add transaction") }
             OutlinedButton(onClick = { showBudget = true }, shape = RoundedCornerShape(14.dp)) { Icon(Icons.Default.Flag, null); Spacer(Modifier.width(5.dp)); Text("Budget") }
@@ -556,6 +550,151 @@ private fun loadDocumentPreview(context: Context, uri: Uri, mimeType: String): a
         categories.chunked(3).forEach { group -> Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) { group.forEach { item -> FilterChip(selected = budgetCategory == item, onClick = { budgetCategory = item }, label = { Text(item) }) } } }
         OutlinedTextField(budgetAmount, { budgetAmount = it.filter { c -> c.isDigit() || c == '.' } }, label = { Text("Monthly limit in ₹") }, singleLine = true)
     } }, confirmButton = { TextButton(onClick = { val value = budgetAmount.toDoubleOrNull(); if (value != null && value > 0) { scope.launch { dao.saveBudget(BudgetEntity(budgetCategory, (value * 100).toLong())) }; budgetAmount = ""; showBudget = false } }) { Text("Save budget") } }, dismissButton = { TextButton(onClick = { showBudget = false }) { Text("Cancel") } })
+}
+
+
+@Composable
+private fun LiquidOverviewCard(
+    monthLabel: String,
+    income: Long,
+    expenses: Long,
+    net: Long,
+    topCategoryText: String,
+    comparisonText: String
+) {
+    val shape = RoundedCornerShape(24.dp)
+    val remainingRatio = if (income > 0L) (net.toFloat() / income.toFloat()).coerceIn(0f, 1f) else 0f
+    val animatedLevel by animateFloatAsState(
+        targetValue = remainingRatio,
+        animationSpec = tween(durationMillis = 1100, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+        label = "monthly-water-level"
+    )
+    val waves = rememberInfiniteTransition(label = "monthly-water-waves")
+    val phase by waves.animateFloat(
+        initialValue = 0f,
+        targetValue = (Math.PI * 2.0).toFloat(),
+        animationSpec = infiniteRepeatable(tween(5200, easing = LinearEasing), repeatMode = RepeatMode.Restart),
+        label = "wave-phase"
+    )
+    val glow by waves.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.7f,
+        animationSpec = infiniteRepeatable(tween(2400, easing = LinearEasing), repeatMode = RepeatMode.Reverse),
+        label = "wave-glow"
+    )
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = shape,
+        colors = CardDefaults.cardColors(containerColor = Forest)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .background(Forest)
+        ) {
+            Canvas(Modifier.matchParentSize()) {
+                val width = size.width
+                val height = size.height
+                val amplitude = (height * 0.025f).coerceAtLeast(5f)
+                val baseY = height * (1f - animatedLevel)
+                fun wavePath(offset: Float, verticalOffset: Float): Path {
+                    return Path().apply {
+                        val startY = baseY + verticalOffset + sin(offset.toDouble()).toFloat() * amplitude
+                        moveTo(0f, startY)
+                        var x = 0f
+                        while (x <= width) {
+                            val y = baseY + verticalOffset + sin((x / width * Math.PI * 2.0 + offset).toDouble()).toFloat() * amplitude
+                            lineTo(x, y)
+                            x += 5f
+                        }
+                        lineTo(width, height)
+                        lineTo(0f, height)
+                        close()
+                    }
+                }
+                val waterBrush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xAA63E6B1),
+                        Color(0xBB20B985),
+                        Color(0xDD087653),
+                        Color(0xEE07523E)
+                    ),
+                    startY = (baseY - amplitude * 2f).coerceAtLeast(0f),
+                    endY = height
+                )
+                drawPath(wavePath(phase + 1.1f, amplitude * 0.55f), waterBrush)
+                drawPath(
+                    wavePath(phase + 3.0f, 0f),
+                    Brush.verticalGradient(
+                        listOf(Color(0x886FFFD0), Color(0x5533D6A0), Color(0x2200A878)),
+                        startY = (baseY - amplitude).coerceAtLeast(0f),
+                        endY = height
+                    )
+                )
+                val crest = Path().apply {
+                    var x = 0f
+                    while (x <= width) {
+                        val y = baseY + sin((x / width * Math.PI * 2.0 + phase).toDouble()).toFloat() * amplitude
+                        if (x == 0f) moveTo(x, y) else lineTo(x, y)
+                        x += 5f
+                    }
+                }
+                drawPath(
+                    crest,
+                    color = Color(0xCC9CFFDA).copy(alpha = glow),
+                    style = Stroke(width = 2.2.dp.toPx())
+                )
+                // A restrained mint highlight gives the liquid a soft glow without obscuring figures.
+                drawCircle(
+                    color = Color(0x333DFFB4).copy(alpha = glow),
+                    radius = 12.dp.toPx(),
+                    center = androidx.compose.ui.geometry.Offset(width * 0.82f, (baseY + 22.dp.toPx()).coerceAtMost(height))
+                )
+            }
+
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(monthLabel, color = Color.White.copy(alpha = .78f), style = MaterialTheme.typography.labelLarge)
+                Text("Monthly overview", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Income", color = Color.White.copy(alpha = .82f), style = MaterialTheme.typography.labelSmall)
+                        Text(formatRupees(income), color = Color.White, fontWeight = FontWeight.SemiBold)
+                    }
+                    Column(Modifier.weight(1f)) {
+                        Text("Expenses", color = Color.White.copy(alpha = .82f), style = MaterialTheme.typography.labelSmall)
+                        Text(formatRupees(expenses), color = Color.White, fontWeight = FontWeight.SemiBold)
+                    }
+                    Column(Modifier.weight(1f)) {
+                        Text("Net", color = Color.White.copy(alpha = .82f), style = MaterialTheme.typography.labelSmall)
+                        Text(formatRupees(net), color = Color.White, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+                HorizontalDivider(color = Color.White.copy(alpha = .24f))
+                Text(topCategoryText, color = Color.White, style = MaterialTheme.typography.bodySmall)
+                Text(comparisonText, color = Color.White.copy(alpha = .86f), style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(3.dp))
+                val status = when {
+                    income <= 0L -> "Add income to activate the water level"
+                    net < 0L -> "Income exceeded by ${formatRupees(-net)}"
+                    else -> "${(remainingRatio * 100).toInt()}% of income remaining"
+                }
+                Text(
+                    status,
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .background(Color(0x44002F24), RoundedCornerShape(50))
+                        .padding(horizontal = 12.dp, vertical = 7.dp)
+                )
+            }
+        }
+    }
 }
 
 @Composable private fun FeatureScreen(padding: PaddingValues, title: String, subtitle: String, icon: androidx.compose.ui.graphics.vector.ImageVector, note: String) {
