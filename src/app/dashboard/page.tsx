@@ -17,15 +17,17 @@ export default async function DashboardPage({ searchParams }: Props) {
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) redirect("/login");
 
-  const [remindersResult, expensesResult, docsResult] = await Promise.all([
+  const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0,0,0,0);
+  const monthStartDate = monthStart.toISOString().slice(0,10);
+  const [remindersResult, expensesResult, monthlyExpensesResult, docsResult] = await Promise.all([
     supabase.from("reminders").select("id,title,due_at,priority,completed_at,category").order("due_at",{ascending:true}).limit(8),
     supabase.from("expenses").select("id,description,amount,kind,occurred_on").order("occurred_on",{ascending:false}).limit(8),
+    supabase.from("expenses").select("amount").eq("kind","expense").gte("occurred_on",monthStartDate),
     supabase.from("documents").select("id",{count:"exact",head:true})
   ]);
   const reminders = remindersResult.data || [];
   const expenses = expensesResult.data || [];
-  const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0,0,0,0);
-  const monthExpenses = expenses.filter(item=>item.kind==="expense" && new Date(item.occurred_on+"T00:00:00")>=monthStart).reduce((sum,item)=>sum+Number(item.amount),0);
+  const monthExpenses = (monthlyExpensesResult.data || []).reduce((sum,item)=>sum+Number(item.amount),0);
   const name = user.user_metadata?.full_name || user.email?.split("@")[0] || "there";
 
   return <main className="min-h-screen px-4 py-7 md:px-10 md:py-10">
