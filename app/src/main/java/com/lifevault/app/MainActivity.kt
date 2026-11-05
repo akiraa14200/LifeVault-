@@ -8,6 +8,10 @@ import android.net.Uri
 import android.os.Build
 import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -49,11 +53,12 @@ private val Canvas = Color(0xFFF5F7F3)
 private val Ink = Color(0xFF1E2B24)
 private val Muted = Color(0xFF829087)
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val dao = VaultDatabase.get(this).vaultDao()
+        val widgetPrefs = getSharedPreferences("lifevault_settings", MODE_PRIVATE)
         val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
         setContent {
             MaterialTheme(colorScheme = lightColorScheme(primary = Forest, onPrimary = Color.White, secondary = Color(0xFF789A82), background = Canvas, surface = Color.White, onSurface = Ink)) {
@@ -65,10 +70,11 @@ class MainActivity : ComponentActivity() {
                             val id = dao.addReminder(ReminderEntity(title = title, dueAt = dueAt, repeatIntervalDays = repeatDays))
                             val request = OneTimeWorkRequestBuilder<ReminderWorker>().setInitialDelay((dueAt - System.currentTimeMillis()).coerceAtLeast(0), TimeUnit.MILLISECONDS).setInputData(workDataOf("title" to title, "reminder_id" to id, "repeat_days" to repeatDays)).build()
                             WorkManager.getInstance(this@MainActivity).enqueueUniqueWork("reminder_$id", androidx.work.ExistingWorkPolicy.REPLACE, request)
+                            LifeVaultWidgetProvider.refresh(this@MainActivity)
                         }
                     },
-                    onCompleteReminder = { id -> lifecycleScope.launch { dao.completeReminder(id); WorkManager.getInstance(this@MainActivity).cancelUniqueWork("reminder_$id") } },
-                    onAddTransaction = { title, amount, income, category -> lifecycleScope.launch { dao.addTransaction(TransactionEntity(title = title, amountPaise = (amount * 100).toLong(), isIncome = income, category = category)) } }
+                    onCompleteReminder = { id -> lifecycleScope.launch { dao.completeReminder(id); WorkManager.getInstance(this@MainActivity).cancelUniqueWork("reminder_$id"); LifeVaultWidgetProvider.refresh(this@MainActivity) } },
+                    onAddTransaction = { title, amount, income, category -> lifecycleScope.launch { dao.addTransaction(TransactionEntity(title = title, amountPaise = (amount * 100).toLong(), isIncome = income, category = category)); LifeVaultWidgetProvider.refresh(this@MainActivity) } }
                 )
             }
         }
@@ -110,6 +116,7 @@ private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String, Int) -> Unit, on
     var folder by remember { mutableStateOf("General") }
     var tags by remember { mutableStateOf("") }
     var folderFilter by remember { mutableStateOf("All") }
+    var sortByName by remember { mutableStateOf(false) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
@@ -131,8 +138,10 @@ private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String, Int) -> Unit, on
         val folders = listOf("All") + documents.map { it.folder }.distinct().sorted()
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             folders.forEach { name -> FilterChip(selected = folderFilter == name, onClick = { folderFilter = name }, label = { Text(name) }) }
+            FilterChip(selected = sortByName, onClick = { sortByName = !sortByName }, label = { Text(if (sortByName) "A–Z" else "Newest") })
         }
-        val visibleDocuments = if (folderFilter == "All") documents else documents.filter { it.folder == folderFilter }
+        val filteredDocuments = if (folderFilter == "All") documents else documents.filter { it.folder == folderFilter }
+        val visibleDocuments = if (sortByName) filteredDocuments.sortedBy { it.name.lowercase() } else filteredDocuments.sortedByDescending { it.addedAt }
         if (documents.isEmpty()) EmptyCard("Your vault is empty", "Import PDFs, images and other documents to get started.")
         else LazyColumn(verticalArrangement = Arrangement.spacedBy(9.dp)) {
             items(visibleDocuments, key = { it.id }) { file ->
@@ -170,17 +179,24 @@ private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String, Int) -> Unit, on
 }
 
 @Composable private fun HomeScreen(padding: PaddingValues, reminders: List<ReminderEntity>, transactions: List<TransactionEntity>, onComplete: (Long) -> Unit, onSearch: () -> Unit, onSettings: () -> Unit) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("lifevault_settings", android.content.Context.MODE_PRIVATE) }
+    var showMetrics by remember { mutableStateOf(prefs.getBoolean("dashboard_show_metrics", true)) }
+    var showSpending by remember { mutableStateOf(prefs.getBoolean("dashboard_show_spending", true)) }
+    var showReminders by remember { mutableStateOf(prefs.getBoolean("dashboard_show_reminders", true)) }
     val expenses = transactions.filter { !it.isIncome }.sumOf { it.amountPaise }
     LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item { Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("lifevault.", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Forest); Spacer(Modifier.height(16.dp)); Header("Your personal space", "A little more organised.", "Everything important, in one calm place.") }; Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 IconButton(onClick = onSearch, modifier = Modifier.size(44.dp).background(Mint, CircleShape)) { Icon(Icons.Default.Search, "Search", tint = Forest) }
                 IconButton(onClick = onSettings, modifier = Modifier.size(44.dp).background(Mint, CircleShape)) { Text("LV", color = Forest, fontWeight = FontWeight.Bold) }
             } } }
-        item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { Metric("Open reminders", reminders.count { !it.isDone }.toString(), Modifier.weight(1f)); Metric("Saved records", transactions.size.toString(), Modifier.weight(1f)) } }
-        item { Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Forest)) { Column(Modifier.fillMaxWidth().padding(20.dp)) { Text("Your spending", color = Color.White.copy(alpha = .72f)); Text(formatRupees(expenses), color = Color.White, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold); Text("Recorded on this device", color = Color.White.copy(alpha = .72f), style = MaterialTheme.typography.bodySmall) } } }
-        item { Text("Upcoming reminders", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
-        if (reminders.isEmpty()) item { EmptyCard("No reminders yet", "Add a reminder to see it here.") }
-        items(reminders.take(4), key = { it.id }) { ReminderRow(it, onComplete) }
+        if (showMetrics) item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { Metric("Open reminders", reminders.count { !it.isDone }.toString(), Modifier.weight(1f)); Metric("Saved records", transactions.size.toString(), Modifier.weight(1f)) } }
+        if (showSpending) item { Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Forest)) { Column(Modifier.fillMaxWidth().padding(20.dp)) { Text("Your spending", color = Color.White.copy(alpha = .72f)); Text(formatRupees(expenses), color = Color.White, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold); Text("Recorded on this device", color = Color.White.copy(alpha = .72f), style = MaterialTheme.typography.bodySmall) } } }
+        if (showReminders) {
+            item { Text("Upcoming reminders", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
+            if (reminders.isEmpty()) item { EmptyCard("No reminders yet", "Add a reminder to see it here.") }
+            items(reminders.take(4), key = { it.id }) { ReminderRow(it, onComplete) }
+        }
     }
 }
 
@@ -382,6 +398,15 @@ private fun SettingsScreen(padding: PaddingValues, dao: VaultDao, onNavigate: (D
             android.widget.Toast.makeText(context, dataMessage, android.widget.Toast.LENGTH_LONG).show()
         }
     }
+    val moneyCsvPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
+        if (uri != null) scope.launch { dataMessage = runCatching { Phase3Export.exportTransactionsCsv(context, uri, dao); "Money CSV exported." }.getOrElse { "CSV export failed: " + (it.message ?: "unknown error") } }
+    }
+    val vaultCsvPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
+        if (uri != null) scope.launch { dataMessage = runCatching { Phase3Export.exportVaultIndexCsv(context, uri, dao); "Vault index CSV exported." }.getOrElse { "CSV export failed: " + (it.message ?: "unknown error") } }
+    }
+    val pdfPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
+        if (uri != null) scope.launch { dataMessage = runCatching { Phase3Export.exportMoneyPdf(context, uri, dao); "Money PDF report exported." }.getOrElse { "PDF export failed: " + (it.message ?: "unknown error") } }
+    }
     val importPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch {
             dataMessage = runCatching { BackupRestore.restore(context, uri, dao); "Backup restored. Existing local records were replaced." }.getOrElse { "Restore failed: ${it.message ?: "unknown error"}" }
@@ -435,6 +460,14 @@ private fun SettingsScreen(padding: PaddingValues, dao: VaultDao, onNavigate: (D
                         }
                         Text("Default", color = Forest, style = MaterialTheme.typography.labelMedium)
                     }
+                    HorizontalDivider()
+                    Text("Dashboard", fontWeight = FontWeight.SemiBold)
+                    var showMetrics by remember { mutableStateOf(prefs.getBoolean("dashboard_show_metrics", true)) }
+                    var showSpending by remember { mutableStateOf(prefs.getBoolean("dashboard_show_spending", true)) }
+                    var showReminders by remember { mutableStateOf(prefs.getBoolean("dashboard_show_reminders", true)) }
+                    Row(verticalAlignment = Alignment.CenterVertically) { Text("Summary cards", Modifier.weight(1f)); Switch(showMetrics, { showMetrics = it; prefs.edit().putBoolean("dashboard_show_metrics", it).apply() }) }
+                    Row(verticalAlignment = Alignment.CenterVertically) { Text("Spending card", Modifier.weight(1f)); Switch(showSpending, { showSpending = it; prefs.edit().putBoolean("dashboard_show_spending", it).apply() }) }
+                    Row(verticalAlignment = Alignment.CenterVertically) { Text("Upcoming reminders", Modifier.weight(1f)); Switch(showReminders, { showReminders = it; prefs.edit().putBoolean("dashboard_show_reminders", it).apply() }) }
                     Text("Language follows your device language where supported.", color = Muted, style = MaterialTheme.typography.bodySmall)
                 }
             }
@@ -452,6 +485,17 @@ private fun SettingsScreen(padding: PaddingValues, dao: VaultDao, onNavigate: (D
                     }
                     if (dataMessage.isNotBlank()) Text(dataMessage, color = Forest, style = MaterialTheme.typography.labelSmall)
                     Text("Note: imported document files are not copied into the backup; only their saved references are included. References may not work after moving to another device.", color = Muted, style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp)) {
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Export reports", fontWeight = FontWeight.SemiBold)
+                    Text("Save your money history as a spreadsheet or PDF, or export a searchable index of vault files. Original document files are not copied.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                    OutlinedButton(onClick = { moneyCsvPicker.launch("LifeVault-money.csv") }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.TableChart, null); Spacer(Modifier.width(8.dp)); Text("Export money CSV") }
+                    OutlinedButton(onClick = { pdfPicker.launch("LifeVault-money-report.pdf") }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.PictureAsPdf, null); Spacer(Modifier.width(8.dp)); Text("Export money PDF") }
+                    OutlinedButton(onClick = { vaultCsvPicker.launch("LifeVault-vault-index.csv") }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Folder, null); Spacer(Modifier.width(8.dp)); Text("Export vault index CSV") }
                 }
             }
         }
