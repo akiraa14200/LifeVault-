@@ -60,9 +60,11 @@ class MainActivity : FragmentActivity() {
         val dao = VaultDatabase.get(this).vaultDao()
         val widgetPrefs = getSharedPreferences("lifevault_settings", MODE_PRIVATE)
         val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+        val lockPrefs = getSharedPreferences("lifevault_settings", MODE_PRIVATE)
+        var isUnlocked by mutableStateOf(!lockPrefs.getBoolean("biometric_lock_enabled", false))
         setContent {
             MaterialTheme(colorScheme = lightColorScheme(primary = Forest, onPrimary = Color.White, secondary = Color(0xFF789A82), background = Canvas, surface = Color.White, onSurface = Ink)) {
-                LifeVaultApp(dao,
+                if (isUnlocked) LifeVaultApp(dao,
                     onAddReminder = { title, repeatDays ->
                         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                         lifecycleScope.launch {
@@ -74,8 +76,27 @@ class MainActivity : FragmentActivity() {
                         }
                     },
                     onCompleteReminder = { id -> lifecycleScope.launch { dao.completeReminder(id); WorkManager.getInstance(this@MainActivity).cancelUniqueWork("reminder_$id"); LifeVaultWidgetProvider.refresh(this@MainActivity) } },
-                    onAddTransaction = { title, amount, income, category -> lifecycleScope.launch { dao.addTransaction(TransactionEntity(title = title, amountPaise = (amount * 100).toLong(), isIncome = income, category = category)); LifeVaultWidgetProvider.refresh(this@MainActivity) } }
-                )
+                    onAddTransaction = { title, amount, income, category -> lifecycleScope.launch { dao.addTransaction(TransactionEntity(title = title, amountPaise = (amount * 100).toLong(), isIncome = income, category = category)); LifeVaultWidgetProvider.refresh(this@MainActivity) } },
+                    onBiometricLockChange = { enabled ->
+                        val authenticators = BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                        val available = BiometricManager.from(this).canAuthenticate(authenticators) == BiometricManager.BIOMETRIC_SUCCESS
+                        if (enabled && !available) {
+                            android.widget.Toast.makeText(this, "Set up a fingerprint, face unlock or screen lock first.", android.widget.Toast.LENGTH_LONG).show()
+                            false
+                        } else {
+                            lockPrefs.edit().putBoolean("biometric_lock_enabled", enabled).apply()
+                            isUnlocked = !enabled
+                            true
+                        }
+                    }
+                ) else BiometricUnlockScreen(onUnlock = {
+                    val authenticators = BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                    val prompt = BiometricPrompt(this, ContextCompat.getMainExecutor(this), object : BiometricPrompt.AuthenticationCallback() {
+                        override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) { isUnlocked = true }
+                    })
+                    val info = BiometricPrompt.PromptInfo.Builder().setTitle("Unlock LifeVault").setSubtitle("Verify to open your private space").setAllowedAuthenticators(authenticators).build()
+                    prompt.authenticate(info)
+                })
             }
         }
     }
@@ -84,7 +105,7 @@ class MainActivity : FragmentActivity() {
 private enum class Destination(val label: String) { Home("Home"), Vault("Vault"), Reminders("Reminders"), Money("Money"), HomeCare("Home care"), Search("Search"), Settings("Settings"), About("About"), Guide("Guide"), Terms("Terms"), Privacy("Privacy") }
 
 @Composable
-private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String, Int) -> Unit, onCompleteReminder: (Long) -> Unit, onAddTransaction: (String, Double, Boolean, String) -> Unit) {
+private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String, Int) -> Unit, onCompleteReminder: (Long) -> Unit, onAddTransaction: (String, Double, Boolean, String) -> Unit, onBiometricLockChange: (Boolean) -> Boolean) {
     var selected by remember { mutableStateOf(Destination.Home) }
     val reminders by dao.observeReminders().collectAsStateWithLifecycle(initialValue = emptyList())
     val transactions by dao.observeTransactions().collectAsStateWithLifecycle(initialValue = emptyList())
@@ -100,12 +121,33 @@ private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String, Int) -> Unit, on
             Destination.Reminders -> RemindersScreen(padding, reminders, onAddReminder, onCompleteReminder)
             Destination.Money -> MoneyScreen(padding, transactions, dao, onAddTransaction)
             Destination.HomeCare -> FeatureScreen(padding, "Home care", "Appliances, service history and maintenance.", Icons.Default.HomeRepairService, "Appliance records and maintenance schedules are planned next.")
-            Destination.Settings -> SettingsScreen(padding, dao, onNavigate = { selected = it })
+            Destination.Settings -> SettingsScreen(padding, dao, onNavigate = { selected = it }, onBiometricLockChange = onBiometricLockChange)
             Destination.Search -> SearchScreen(padding, dao, reminders, transactions)
             Destination.About -> InfoScreen(padding, "About LifeVault", "A calm space for the important parts of everyday life.", listOf("LifeVault helps organise reminders, documents and simple money records.", "This native Android app stores its current records locally on your device.", "Some features are still being developed. The app does not provide financial, legal or medical advice."), onBack = { selected = Destination.Settings })
             Destination.Guide -> InfoScreen(padding, "Documentation", "A quick guide to using LifeVault.", listOf("Home: view a summary of reminders and recorded spending.", "Vault: import a file using the Android document picker. Open a saved file with a compatible app. Removing a vault entry does not delete the original file.", "Reminders: create a reminder and mark it complete. Notifications depend on Android notification permission and your notification setting.", "Money: record an income or expense manually. Entries are a personal log, not a bank connection.", "Home care: this section is a placeholder for future appliance and maintenance records."), onBack = { selected = Destination.Settings })
             Destination.Terms -> InfoScreen(padding, "Terms of use", "Please read these basic terms before using the app.", listOf("Use LifeVault lawfully and only for information you are permitted to store.", "You are responsible for keeping your device secure and maintaining your own backups of important files.", "LifeVault is provided as an organisational tool. It does not guarantee that reminders will always be delivered; Android settings, battery restrictions and permissions may affect them.", "The app is provided as-is while under development. Features may change, be unavailable or contain errors.", "Do not rely on LifeVault as the sole copy of critical documents or as professional financial, legal or medical advice."), onBack = { selected = Destination.Settings })
             Destination.Privacy -> InfoScreen(padding, "Privacy policy", "What the current native build does with your information.", listOf("The current native build stores reminders, money entries and document references in a local Room database on this device.", "Imported files remain in their original Android document provider. LifeVault stores a reference and display details; removing an entry removes the reference from the vault, not the original file.", "Reminder notifications are generated on-device. You can turn them off in Settings or in Android system settings.", "This build does not currently connect to a LifeVault cloud account or sync data to a server.", "Uninstalling the app or clearing its app data may remove locally stored records. Keep independent copies of important information."), onBack = { selected = Destination.Settings })
+        }
+    }
+}
+
+@Composable
+private fun BiometricUnlockScreen(onUnlock: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxSize().background(Canvas).padding(28.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(Icons.Default.Lock, contentDescription = null, tint = Forest, modifier = Modifier.size(52.dp))
+        Spacer(Modifier.height(18.dp))
+        Text("LifeVault is locked", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold, color = Ink)
+        Spacer(Modifier.height(8.dp))
+        Text("Verify your identity to access your private records.", color = Muted)
+        Spacer(Modifier.height(22.dp))
+        Button(onClick = onUnlock, modifier = Modifier.fillMaxWidth()) {
+            Icon(Icons.Default.Fingerprint, null)
+            Spacer(Modifier.width(8.dp))
+            Text("Unlock securely")
         }
     }
 }
@@ -387,7 +429,7 @@ private fun SearchScreen(
 }
 
 @Composable
-private fun SettingsScreen(padding: PaddingValues, dao: VaultDao, onNavigate: (Destination) -> Unit) {
+private fun SettingsScreen(padding: PaddingValues, dao: VaultDao, onNavigate: (Destination) -> Unit, onBiometricLockChange: (Boolean) -> Boolean) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var dataMessage by remember { mutableStateOf("") }
@@ -415,6 +457,7 @@ private fun SettingsScreen(padding: PaddingValues, dao: VaultDao, onNavigate: (D
     }
     val prefs = remember { context.getSharedPreferences("lifevault_settings", android.content.Context.MODE_PRIVATE) }
     var notifications by remember { mutableStateOf(prefs.getBoolean("notifications_enabled", true)) }
+    var biometricLock by remember { mutableStateOf(prefs.getBoolean("biometric_lock_enabled", false)) }
     var cacheMessage by remember { mutableStateOf("") }
 
     LazyColumn(
@@ -451,6 +494,14 @@ private fun SettingsScreen(padding: PaddingValues, dao: VaultDao, onNavigate: (D
                                 prefs.edit().putBoolean("notifications_enabled", enabled).apply()
                             }
                         )
+                    }
+                    HorizontalDivider()
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Biometric app lock", fontWeight = FontWeight.Medium)
+                            Text("Require fingerprint, face or device PIN when opening LifeVault", color = Muted, style = MaterialTheme.typography.bodySmall)
+                        }
+                        Switch(checked = biometricLock, onCheckedChange = { enabled -> if (onBiometricLockChange(enabled)) biometricLock = enabled })
                     }
                     HorizontalDivider()
                     Row(verticalAlignment = Alignment.CenterVertically) {
