@@ -586,16 +586,25 @@ private fun LiquidOverviewCard(
     var tiltX by remember { mutableFloatStateOf(0f) }
     DisposableEffect(context) {
         val manager = context.getSystemService(SENSOR_SERVICE) as SensorManager
-        val accelerometer = manager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        // Prefer the gravity sensor (already filtered); fall back to the accelerometer.
+        val tiltSensor = manager.getDefaultSensor(Sensor.TYPE_GRAVITY)
+            ?: manager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         val listener = object : SensorEventListener {
             override fun onSensorChanged(event: SensorEvent) {
-                // Accelerometer gravity vector gives a stable left/right tilt signal.
-                val target = (event.values[0] / SensorManager.GRAVITY_EARTH).coerceIn(-0.65f, 0.65f)
-                tiltX = (tiltX * 0.82f + target * 0.18f).coerceIn(-0.65f, 0.65f)
+                // In portrait, Y is the up/down gravity component and X is left/right.
+                // Convert the gravity vector to an angle so small tilts are still noticeable.
+                val angle = kotlin.math.atan2(
+                    event.values[0].toDouble(),
+                    kotlin.math.abs(event.values[1]).coerceAtLeast(0.5f).toDouble()
+                ).toFloat()
+                val target = (angle / Math.toRadians(32.0).toFloat()).coerceIn(-1f, 1f)
+                tiltX = (tiltX * 0.72f + target * 0.28f).coerceIn(-1f, 1f)
             }
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
         }
-        if (accelerometer != null) manager.registerListener(listener, accelerometer, SensorManager.SENSOR_DELAY_UI)
+        if (tiltSensor != null) {
+            manager.registerListener(listener, tiltSensor, SensorManager.SENSOR_DELAY_GAME)
+        }
         onDispose { manager.unregisterListener(listener) }
     }
     val remainingRatio = if (income > 0L) (net.toFloat() / income.toFloat()).coerceIn(0f, 1f) else 0f
@@ -640,7 +649,7 @@ private fun LiquidOverviewCard(
                         moveTo(0f, startY)
                         var x = 0f
                         while (x <= width) {
-                            val y = baseY + verticalOffset + tiltX * height * 0.055f * (x / width - 0.5f) + sin((x / width * Math.PI * 2.0 + offset + tiltX * 0.7f).toDouble()).toFloat() * amplitude
+                            val y = baseY + verticalOffset + tiltX * height * 0.14f * (x / width - 0.5f) + sin((x / width * Math.PI * 2.0 + offset + tiltX * 1.15f).toDouble()).toFloat() * amplitude
                             lineTo(x, y)
                             x += 5f
                         }
