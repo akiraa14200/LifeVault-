@@ -22,7 +22,15 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.animation.core.LinearEasing\nimport androidx.compose.animation.core.RepeatMode\nimport androidx.compose.animation.core.animateFloat\nimport androidx.compose.animation.core.animateFloatAsState\nimport androidx.compose.animation.core.infiniteRepeatable\nimport androidx.compose.animation.core.rememberInfiniteTransition\nimport androidx.compose.animation.core.tween\nimport androidx.compose.foundation.Canvas\nimport androidx.compose.foundation.background
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas as ComposeCanvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -39,7 +47,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush\nimport androidx.compose.ui.graphics.Color\nimport androidx.compose.ui.graphics.Path\nimport androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -57,7 +68,8 @@ import java.util.concurrent.TimeUnit
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.Locale\nimport kotlin.math.sin
+import java.util.Locale
+import kotlin.math.sin
 
 private val Forest = Color(0xFF234C3D)
 private val Mint = Color(0xFFE5F1E9)
@@ -595,7 +607,7 @@ private fun LiquidOverviewCard(
                 .clip(shape)
                 .background(Forest)
         ) {
-            Canvas(Modifier.matchParentSize()) {
+            ComposeCanvas(Modifier.matchParentSize()) {
                 val width = size.width
                 val height = size.height
                 val amplitude = (height * 0.025f).coerceAtLeast(5f)
