@@ -11,6 +11,9 @@ import androidx.work.WorkerParameters
 
 class ReminderWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
+        val preferences = applicationContext.getSharedPreferences("lifevault_settings", Context.MODE_PRIVATE)
+        if (!preferences.getBoolean("notifications_enabled", true)) return Result.success()
+
         val title = inputData.getString("title") ?: "LifeVault reminder"
         val reminderId = inputData.getLong("reminder_id", id.hashCode().toLong()).toInt()
         val manager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
