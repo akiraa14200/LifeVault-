@@ -17,7 +17,7 @@ import java.util.concurrent.TimeUnit
 class ReminderWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val preferences = applicationContext.getSharedPreferences("lifevault_settings", Context.MODE_PRIVATE)
-        if (!preferences.getBoolean("notifications_enabled", true)) return Result.success()
+        val notificationsEnabled = preferences.getBoolean("notifications_enabled", true)
 
         val title = inputData.getString("title") ?: "LifeVault reminder"
         val reminderId = inputData.getLong("reminder_id", id.hashCode().toLong()).toInt()
@@ -33,7 +33,7 @@ class ReminderWorker(context: Context, params: WorkerParameters) : CoroutineWork
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .build()
-        if (Build.VERSION.SDK_INT < 33 || applicationContext.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+        if (notificationsEnabled && (Build.VERSION.SDK_INT < 33 || applicationContext.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED)) {
             NotificationManagerCompat.from(applicationContext).notify(reminderId, notification)
         }
         val repeatDays = inputData.getInt("repeat_days", 0)
