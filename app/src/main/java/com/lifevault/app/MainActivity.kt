@@ -787,6 +787,7 @@ private fun SettingsScreen(padding: PaddingValues, dao: VaultDao, onNavigate: (D
     val scope = rememberCoroutineScope()
     var dataMessage by remember { mutableStateOf("") }
     var confirmRestore by remember { mutableStateOf(false) }
+    var confirmAutoRestore by remember { mutableStateOf(false) }
     val exportPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) scope.launch {
             dataMessage = runCatching { BackupRestore.export(context, uri, dao); "Backup saved successfully." }.getOrElse { "Backup failed: ${it.message ?: "unknown error"}" }
@@ -902,8 +903,17 @@ private fun SettingsScreen(padding: PaddingValues, dao: VaultDao, onNavigate: (D
                     OutlinedButton(onClick = { exportPicker.launch("LifeVault-backup-${System.currentTimeMillis()}.json") }, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Default.FileDownload, null); Spacer(Modifier.width(8.dp)); Text("Create backup")
                     }
+                    val automaticFiles = remember {
+                        File(context.filesDir, "automatic_backups").listFiles()
+                            ?.filter { it.isFile && it.name.endsWith(".json") }
+                            ?.sortedByDescending { it.lastModified() } ?: emptyList()
+                    }
+                    Text("${automaticFiles.size} automatic backup copies saved (up to 7).", color = Muted, style = MaterialTheme.typography.labelSmall)
+                    OutlinedButton(onClick = { confirmAutoRestore = true }, modifier = Modifier.fillMaxWidth(), enabled = automaticFiles.isNotEmpty()) {
+                        Icon(Icons.Default.History, null); Spacer(Modifier.width(8.dp)); Text("Restore latest automatic backup")
+                    }
                     OutlinedButton(onClick = { confirmRestore = true }, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Default.Restore, null); Spacer(Modifier.width(8.dp)); Text("Restore backup")
+                        Icon(Icons.Default.Restore, null); Spacer(Modifier.width(8.dp)); Text("Restore from file")
                     }
                     if (dataMessage.isNotBlank()) Text(dataMessage, color = Forest, style = MaterialTheme.typography.labelSmall)
                     Text("Note: original imported files are not copied; only their references and metadata are included. References may not work after moving to another device. Automatic backups are local and are removed if app data is cleared or the app is uninstalled.", color = Muted, style = MaterialTheme.typography.labelSmall)
@@ -951,6 +961,28 @@ private fun SettingsScreen(padding: PaddingValues, dao: VaultDao, onNavigate: (D
         item { SettingsLink("Privacy policy", "How your data is handled", Icons.Default.PrivacyTip) { onNavigate(Destination.Privacy) } }
         item { SettingsLink("About LifeVault", "App information and version", Icons.Default.Info) { onNavigate(Destination.About) } }
         item { Text("LifeVault • Native Android • Local-first preview", color = Muted, style = MaterialTheme.typography.labelSmall) }
+    }
+    if (confirmAutoRestore) {
+        val latestAutomaticBackup = File(context.filesDir, "automatic_backups").listFiles()
+            ?.filter { it.isFile && it.name.endsWith(".json") }
+            ?.maxByOrNull { it.lastModified() }
+        AlertDialog(
+            onDismissRequest = { confirmAutoRestore = false },
+            title = { Text("Restore latest automatic backup?") },
+            text = { Text("This replaces your current reminders, money records, budgets, planner tasks, habits and vault index with the latest saved local backup.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmAutoRestore = false
+                    if (latestAutomaticBackup != null) scope.launch {
+                        dataMessage = runCatching {
+                            withContext(Dispatchers.IO) { BackupRestore.restoreFromFile(latestAutomaticBackup, dao) }
+                            "Latest automatic backup restored."
+                        }.getOrElse { "Restore failed: ${it.message ?: "unknown error"}" }
+                    }
+                }) { Text("Restore") }
+            },
+            dismissButton = { TextButton(onClick = { confirmAutoRestore = false }) { Text("Cancel") } }
+        )
     }
     if (confirmRestore) {
         AlertDialog(
