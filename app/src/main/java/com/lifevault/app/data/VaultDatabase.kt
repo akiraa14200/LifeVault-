@@ -18,13 +18,33 @@ data class TransactionEntity(@PrimaryKey(autoGenerate = true) val id: Long = 0, 
 @Dao
 interface VaultDao {
     @Query("SELECT * FROM reminders ORDER BY isDone ASC, dueAt ASC") fun observeReminders(): Flow<List<ReminderEntity>>
+    @Query("SELECT * FROM reminders ORDER BY id ASC") suspend fun allReminders(): List<ReminderEntity>
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun restoreReminders(items: List<ReminderEntity>)
     @Insert suspend fun addReminder(reminder: ReminderEntity): Long
     @Query("UPDATE reminders SET isDone = 1 WHERE id = :id") suspend fun completeReminder(id: Long)
     @Query("SELECT * FROM documents ORDER BY addedAt DESC") fun observeDocuments(): Flow<List<DocumentEntity>>
+    @Query("SELECT * FROM documents ORDER BY id ASC") suspend fun allDocuments(): List<DocumentEntity>
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun restoreDocuments(items: List<DocumentEntity>)
     @Insert suspend fun addDocument(document: DocumentEntity)
     @Query("DELETE FROM documents WHERE id = :id") suspend fun deleteDocument(id: Long)
     @Query("SELECT * FROM transactions ORDER BY createdAt DESC") fun observeTransactions(): Flow<List<TransactionEntity>>
+    @Query("SELECT * FROM transactions ORDER BY id ASC") suspend fun allTransactions(): List<TransactionEntity>
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun restoreTransactions(items: List<TransactionEntity>)
     @Insert suspend fun addTransaction(transaction: TransactionEntity)
+
+    @Query("DELETE FROM reminders") suspend fun clearReminders()
+    @Query("DELETE FROM transactions") suspend fun clearTransactions()
+    @Query("DELETE FROM documents") suspend fun clearDocuments()
+
+    @Transaction
+    suspend fun replaceAll(reminders: List<ReminderEntity>, transactions: List<TransactionEntity>, documents: List<DocumentEntity>) {
+        clearReminders()
+        clearTransactions()
+        clearDocuments()
+        if (reminders.isNotEmpty()) restoreReminders(reminders)
+        if (transactions.isNotEmpty()) restoreTransactions(transactions)
+        if (documents.isNotEmpty()) restoreDocuments(documents)
+    }
 }
 
 @Database(entities = [ReminderEntity::class, TransactionEntity::class, DocumentEntity::class], version = 2, exportSchema = false)
