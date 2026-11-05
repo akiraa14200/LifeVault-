@@ -3,6 +3,7 @@ name: LifeVault CI
 on:
   push:
     branches: [main, "feature/**"]
+    branches-ignore: ["feature/lifevault-android-native"]
   pull_request:
     branches: [main]
 
