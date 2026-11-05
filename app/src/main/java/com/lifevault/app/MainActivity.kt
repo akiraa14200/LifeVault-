@@ -518,6 +518,10 @@ private fun loadDocumentPreview(context: Context, uri: Uri, mimeType: String): a
     val spendChange = if (previousMonthExpenseTotal > 0L) ((monthExpenseTotal - previousMonthExpenseTotal).toDouble() / previousMonthExpenseTotal.toDouble() * 100.0) else null
     Column(Modifier.fillMaxSize().padding(padding).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Header("Know where it goes", "Money", "A simple, private spending log.")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { show = true }, shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f)) { Icon(Icons.Default.Add, null); Spacer(Modifier.width(6.dp)); Text("Add transaction") }
+            OutlinedButton(onClick = { showBudget = true }, shape = RoundedCornerShape(14.dp)) { Icon(Icons.Default.Flag, null); Spacer(Modifier.width(5.dp)); Text("Budget") }
+        }
         LiquidOverviewCard(
             monthLabel = SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(Date(monthStart)),
             income = monthIncomeTotal,
@@ -527,10 +531,6 @@ private fun loadDocumentPreview(context: Context, uri: Uri, mimeType: String): a
             comparisonText = when { spendChange == null -> "No previous-month comparison available yet."; spendChange > 0 -> "Spending is ${String.format(Locale.getDefault(), "%.0f", spendChange)}% higher than last month."; spendChange < 0 -> "Spending is ${String.format(Locale.getDefault(), "%.0f", -spendChange)}% lower than last month."; else -> "Spending matches last month." }
         )
         MoneyInsightsSection(transactions = transactions, budgets = budgets)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { show = true }, shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f)) { Icon(Icons.Default.Add, null); Spacer(Modifier.width(6.dp)); Text("Add transaction") }
-            OutlinedButton(onClick = { showBudget = true }, shape = RoundedCornerShape(14.dp)) { Icon(Icons.Default.Flag, null); Spacer(Modifier.width(5.dp)); Text("Budget") }
-        }
         Text("Monthly budgets", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         if (budgets.isEmpty()) Text("Set a category budget to track monthly spending.", color = Muted, style = MaterialTheme.typography.bodySmall)
         budgets.forEach { budget ->
