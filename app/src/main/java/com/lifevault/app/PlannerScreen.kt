@@ -33,7 +33,7 @@ internal fun PlannerScreen(padding: PaddingValues, dao: VaultDao) {
     val today = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()) }
     val completed = tasks.count { it.isDone }
     LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { Header("Plan your day", "Daily planner", "Tasks and habits, stored privately on this device.") }
+        item { PlannerHeader() }
         item {
             Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF234C3D)), shape = RoundedCornerShape(20.dp)) {
                 Column(Modifier.fillMaxWidth().padding(18.dp)) {
@@ -44,7 +44,7 @@ internal fun PlannerScreen(padding: PaddingValues, dao: VaultDao) {
             }
         }
         item { Row(verticalAlignment = Alignment.CenterVertically) { Text("Tasks", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f)); Button(onClick = { showTask = true }) { Icon(Icons.Default.Add, null); Text("Add task") } } }
-        if (tasks.isEmpty()) item { EmptyCard("No tasks yet", "Add a task to plan your day.") }
+        if (tasks.isEmpty()) item { PlannerEmptyCard("No tasks yet", "Add a task to plan your day.") }
         items(tasks, key = { "task-${it.id}" }) { task ->
             Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(15.dp)) {
                 Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -55,7 +55,7 @@ internal fun PlannerScreen(padding: PaddingValues, dao: VaultDao) {
             }
         }
         item { Row(verticalAlignment = Alignment.CenterVertically) { Text("Habits", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f)); OutlinedButton(onClick = { showHabit = true }) { Icon(Icons.Default.Add, null); Text("Add habit") } } }
-        if (habits.isEmpty()) item { EmptyCard("Build a steady routine", "Add a habit and check it off each day.") }
+        if (habits.isEmpty()) item { PlannerEmptyCard("Build a steady routine", "Add a habit and check it off each day.") }
         items(habits, key = { "habit-${it.id}" }) { habit ->
             val dates = habit.completedDates.split(",").filter { it.isNotBlank() }.toSet()
             val done = today in dates
@@ -70,4 +70,23 @@ internal fun PlannerScreen(padding: PaddingValues, dao: VaultDao) {
     }
     if (showTask) AlertDialog(onDismissRequest = { showTask = false }, title = { Text("Add a task") }, text = { OutlinedTextField(taskTitle, { taskTitle = it }, label = { Text("Task name") }, singleLine = true) }, confirmButton = { TextButton(onClick = { val title = taskTitle.trim(); if (title.isNotEmpty()) scope.launch { dao.addPlannerTask(PlannerTaskEntity(title = title, dueAt = System.currentTimeMillis())) }; taskTitle = ""; showTask = false }) { Text("Save") } }, dismissButton = { TextButton(onClick = { showTask = false }) { Text("Cancel") } })
     if (showHabit) AlertDialog(onDismissRequest = { showHabit = false }, title = { Text("Add a habit") }, text = { OutlinedTextField(habitTitle, { habitTitle = it }, label = { Text("Habit name") }, singleLine = true) }, confirmButton = { TextButton(onClick = { val title = habitTitle.trim(); if (title.isNotEmpty()) scope.launch { dao.addHabit(HabitEntity(title = title)) }; habitTitle = ""; showHabit = false }) { Text("Save") } }, dismissButton = { TextButton(onClick = { showHabit = false }) { Text("Cancel") } })
+}
+
+@Composable
+private fun PlannerHeader() {
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Text("PLAN YOUR DAY", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+        Text("Daily planner", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
+        Text("Tasks and habits, stored privately on this device.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
+private fun PlannerEmptyCard(title: String, subtitle: String) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(15.dp)) {
+        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(title, fontWeight = FontWeight.SemiBold)
+            Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+        }
+    }
 }
