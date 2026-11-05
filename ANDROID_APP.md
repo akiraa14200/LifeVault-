@@ -20,7 +20,7 @@ GitHub Actions builds a debug APK on pushes to `feature/lifevault-android-native
 - Local JSON backup/restore. Document bytes are not embedded; the backup contains their metadata and URI references.
 - Global search across reminders, money records and vault metadata.
 - CSV export for transactions and vault index; PDF money summary export.
-- Optional biometric or device-credential lock at app launch.
+- Optional biometric lock at app launch using AndroidX BiometricPrompt.
 - Dashboard cards can be shown or hidden in Settings.
 - Android home-screen widget showing the next open reminder and recorded expenses.
 
