@@ -17,7 +17,6 @@ grant select, insert, update, delete on
   public.payment_records
 to authenticated;
 
--- The application never needs anonymous access to private LifeVault records.
 revoke all on
   public.profiles,
   public.user_preferences,
@@ -36,7 +35,6 @@ revoke all on
   public.payment_records
 from anon;
 
--- Keep timestamp maintenance consistent for mutable records.
 create or replace function public.set_updated_at()
 returns trigger
 language plpgsql
@@ -68,7 +66,7 @@ drop trigger if exists preferences_set_updated_at on public.user_preferences;
 create trigger preferences_set_updated_at before update on public.user_preferences
 for each row execute function public.set_updated_at();
 
-// Plan and payment history are read-only to end users. A verified server-side
-// payment webhook/administrative path must be the only writer to these tables.
+-- Plan and payment history are read-only to end users. A verified server-side
+-- payment webhook/administrative path must be the only writer to these tables.
 revoke insert, update, delete on public.user_plans, public.payment_records from authenticated;
 grant select on public.user_plans, public.payment_records to authenticated;
