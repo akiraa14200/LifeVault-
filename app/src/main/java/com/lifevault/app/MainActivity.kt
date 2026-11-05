@@ -13,6 +13,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -127,7 +129,7 @@ private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String, Int) -> Unit, on
         }
         Text("Files stay on this device. You can open them from LifeVault whenever you need them.", color = Muted, style = MaterialTheme.typography.bodySmall)
         val folders = listOf("All") + documents.map { it.folder }.distinct().sorted()
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             folders.forEach { name -> FilterChip(selected = folderFilter == name, onClick = { folderFilter = name }, label = { Text(name) }) }
         }
         val visibleDocuments = if (folderFilter == "All") documents else documents.filter { it.folder == folderFilter }
@@ -188,7 +190,7 @@ private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String, Int) -> Unit, on
 @Composable private fun ReminderRow(reminder: ReminderEntity, onComplete: (Long) -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(16.dp)) {
         Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) { Text(reminder.title, fontWeight = FontWeight.SemiBold, color = if (reminder.isDone) Muted else Ink); Text(SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date(reminder.dueAt)), color = Muted, style = MaterialTheme.typography.labelSmall) }
+            Column(Modifier.weight(1f)) { Text(reminder.title, fontWeight = FontWeight.SemiBold, color = if (reminder.isDone) Muted else Ink); Text(SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date(reminder.dueAt)) + if (reminder.repeatIntervalDays > 0) " • Repeats every ${reminder.repeatIntervalDays} day(s)" else "", color = Muted, style = MaterialTheme.typography.labelSmall) }
             if (!reminder.isDone) IconButton(onClick = { onComplete(reminder.id) }) { Icon(Icons.Default.CheckCircle, "Complete", tint = Forest) } else Text("Done", color = Forest, style = MaterialTheme.typography.labelSmall)
         }
     }
@@ -209,7 +211,7 @@ private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String, Int) -> Unit, on
         text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             OutlinedTextField(title, { title = it }, label = { Text("Reminder title") }, singleLine = true)
             Text("Repeat", style = MaterialTheme.typography.labelMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf(0 to "Never", 1 to "Daily", 7 to "Weekly", 30 to "Monthly").forEach { (days, label) ->
                     FilterChip(selected = repeatDays == days, onClick = { repeatDays = days }, label = { Text(label) })
                 }
@@ -248,7 +250,11 @@ private fun LifeVaultApp(dao: VaultDao, onAddReminder: (String, Int) -> Unit, on
             val progress = (spent.toFloat() / budget.monthlyLimitPaise.coerceAtLeast(1)).coerceIn(0f, 1f)
             Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(14.dp)) {
                 Column(Modifier.fillMaxWidth().padding(13.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Row { Text(budget.category, Modifier.weight(1f), fontWeight = FontWeight.SemiBold); Text("${formatRupees(spent)} / ${formatRupees(budget.monthlyLimitPaise)}", style = MaterialTheme.typography.labelSmall) }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(budget.category, Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                        Text("${formatRupees(spent)} / ${formatRupees(budget.monthlyLimitPaise)}", style = MaterialTheme.typography.labelSmall)
+                        IconButton(onClick = { scope.launch { dao.deleteBudget(budget.category) } }, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Close, "Remove budget", tint = Muted) }
+                    }
                     LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
                     if (spent > budget.monthlyLimitPaise) Text("Budget exceeded", color = Color(0xFFB45309), style = MaterialTheme.typography.labelSmall)
                 }
@@ -299,8 +305,8 @@ private fun SearchScreen(
     val documents by dao.observeDocuments().collectAsStateWithLifecycle(initialValue = emptyList())
     val term = query.trim()
     val matchingReminders = reminders.filter { term.isNotEmpty() && it.title.contains(term, ignoreCase = true) }
-    val matchingTransactions = transactions.filter { term.isNotEmpty() && it.title.contains(term, ignoreCase = true) }
-    val matchingDocuments = documents.filter { term.isNotEmpty() && (it.name.contains(term, ignoreCase = true) || it.mimeType.contains(term, ignoreCase = true)) }
+    val matchingTransactions = transactions.filter { term.isNotEmpty() && (it.title.contains(term, ignoreCase = true) || it.category.contains(term, ignoreCase = true)) }
+    val matchingDocuments = documents.filter { term.isNotEmpty() && (it.name.contains(term, ignoreCase = true) || it.mimeType.contains(term, ignoreCase = true) || it.folder.contains(term, ignoreCase = true) || it.tags.contains(term, ignoreCase = true)) }
 
     Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp, vertical = 16.dp)) {
         Header("Find anything", "Search", "Search reminders, money records and saved files.")
