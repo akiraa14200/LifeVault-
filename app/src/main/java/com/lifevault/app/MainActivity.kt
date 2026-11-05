@@ -526,6 +526,7 @@ private fun loadDocumentPreview(context: Context, uri: Uri, mimeType: String): a
             topCategoryText = if (leadingCategory != null) "Top category: ${leadingCategory.key} • ${formatRupees(leadingCategory.value)}" else "No expenses recorded this month yet.",
             comparisonText = when { spendChange == null -> "No previous-month comparison available yet."; spendChange > 0 -> "Spending is ${String.format(Locale.getDefault(), "%.0f", spendChange)}% higher than last month."; spendChange < 0 -> "Spending is ${String.format(Locale.getDefault(), "%.0f", -spendChange)}% lower than last month."; else -> "Spending matches last month." }
         )
+        MoneyInsightsSection(transactions = transactions, budgets = budgets)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { show = true }, shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f)) { Icon(Icons.Default.Add, null); Spacer(Modifier.width(6.dp)); Text("Add transaction") }
             OutlinedButton(onClick = { showBudget = true }, shape = RoundedCornerShape(14.dp)) { Icon(Icons.Default.Flag, null); Spacer(Modifier.width(5.dp)); Text("Budget") }
