@@ -6,35 +6,37 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 object LifeVaultAiClient {
-    fun ask(endpoint: String, model: String, apiKey: String, prompt: String, localContext: String): String {
-        require(endpoint.startsWith("https://")) { "Use a secure HTTPS API endpoint." }
-        require(model.isNotBlank() && apiKey.isNotBlank() && prompt.isNotBlank()) { "Enter a model, API key and question." }
+    private const val MODEL = "gemini-2.5-flash"
+    private const val ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/$MODEL:generateContent"
 
-        val normalizedEndpoint = endpoint.trimEnd('/').removeSuffix("/chat/completions")
-        val url = URL("$normalizedEndpoint/chat/completions")
-        val messages = JSONArray()
-            .put(JSONObject()
-                .put("role", "system")
-                .put("content", "You are LifeVault Assistant. Be clear, practical and privacy-conscious. Do not claim to perform actions in the app. For financial topics, provide general organisation insights, not professional financial advice."))
-            .put(JSONObject().put("role", "user").put("content", buildString {
-                append(prompt)
-                if (localContext.isNotBlank()) {
-                    append("\n\nUser-approved local LifeVault summary:\n")
-                    append(localContext)
-                }
-            }))
+    fun ask(apiKey: String, prompt: String, localContext: String): String {
+        require(apiKey.isNotBlank() && prompt.isNotBlank()) { "Add your Google AI Studio API key and enter a question." }
+
+        val userText = buildString {
+            append(prompt)
+            if (localContext.isNotBlank()) {
+                append("\n\nUser-approved local LifeVault summary:\n")
+                append(localContext)
+            }
+        }
         val payload = JSONObject()
-            .put("model", model)
-            .put("messages", messages)
-            .put("temperature", 0.4)
+            .put("systemInstruction", JSONObject().put("parts", JSONArray().put(
+                JSONObject().put("text", "You are LifeVault Assistant. Be clear, practical and privacy-conscious. Do not claim to perform actions in the app. For financial topics, provide general organisation insights, not professional financial advice.")
+            )))
+            .put("contents", JSONArray().put(
+                JSONObject()
+                    .put("role", "user")
+                    .put("parts", JSONArray().put(JSONObject().put("text", userText)))
+            ))
+            .put("generationConfig", JSONObject().put("temperature", 0.4))
 
-        val connection = (url.openConnection() as HttpURLConnection).apply {
+        val connection = (URL(ENDPOINT).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 15000
             readTimeout = 45000
             doOutput = true
             setRequestProperty("Content-Type", "application/json")
-            setRequestProperty("Authorization", "Bearer $apiKey")
+            setRequestProperty("x-goog-api-key", apiKey)
         }
 
         try {
@@ -50,17 +52,22 @@ object LifeVaultAiClient {
                     JSONObject(body).optJSONObject("error")?.optString("message")
                 }.getOrNull()
                 throw IllegalStateException(
-                    message?.takeIf { it.isNotBlank() } ?: "AI provider returned HTTP $code."
+                    message?.takeIf { it.isNotBlank() } ?: "Google Gemini returned HTTP $code."
                 )
             }
 
             val responseText = JSONObject(body)
-                .optJSONArray("choices")
+                .optJSONArray("candidates")
                 ?.optJSONObject(0)
-                ?.optJSONObject("message")
-                ?.optString("content")
+                ?.optJSONObject("content")
+                ?.optJSONArray("parts")
+                ?.let { parts ->
+                    (0 until parts.length()).mapNotNull { index ->
+                        parts.optJSONObject(index)?.optString("text")?.takeIf { it.isNotBlank() }
+                    }.joinToString("\n")
+                }
                 ?.takeIf { it.isNotBlank() }
-                ?: throw IllegalStateException("The AI provider returned an empty response.")
+                ?: throw IllegalStateException("Google Gemini returned an empty response.")
             return responseText
         } finally {
             connection.disconnect()
