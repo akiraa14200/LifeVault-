@@ -1,0 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: light; --bg:#f4f6f2; --ink:#17211d; --muted:#7c8982; --line:rgba(37,65,51,.09); }
+* { box-sizing:border-box; }
+html,body { min-height:100%; }
+body { margin:0; background:var(--bg); color:var(--ink); font-family:Arial, sans-serif; }
+button,input { font:inherit; }
+::selection { background:#c7ead9; color:#183b2e; }
+.glass { background:rgba(255,255,255,.72); border:1px solid rgba(255,255,255,.88); box-shadow:0 18px 60px rgba(28,55,43,.055); backdrop-filter:blur(22px); -webkit-backdrop-filter:blur(22px); }
+.sidebar { background:rgba(250,252,249,.78); border-right:1px solid var(--line); }
+.nav-item { display:flex; align-items:center; gap:12px; width:100%; padding:11px 13px; border-radius:13px; color:#718078; font-size:13px; transition:.18s ease; }
+.nav-item:hover { background:#edf4ef; color:#234c3d; }
+.nav-item.active { background:#e5f1e9; color:#234c3d; font-weight:650; }
+.metric-card { border:1px solid var(--line); background:rgba(255,255,255,.74); border-radius:22px; padding:19px; }
+.soft-grid { background-image:radial-gradient(rgba(41,82,62,.08) .7px, transparent .7px); background-size:17px 17px; }
+@media(max-width:767px){ .sidebar{display:none}.mobile-nav{display:flex!important}.main-shell{padding-bottom:92px!important} }
