@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { completeReminder, createExpense, createReminder } from "@/app/actions/data";
+import { completeReminder, createExpense } from "@/app/actions/data";
+import { ReminderForm } from "./ReminderForm";
 import { signOut } from "@/app/actions/auth";
 
 export const dynamic = "force-dynamic";
@@ -42,12 +43,7 @@ export default async function DashboardPage({ searchParams }: Props) {
       <section className="grid gap-5 lg:grid-cols-2">
         <div className="glass rounded-[24px] p-5">
           <h2 className="text-sm font-semibold">Add a reminder</h2><p className="mb-4 mt-1 text-xs text-[#829087]">Saved to your account and protected by database policies.</p>
-          <form action={createReminder} className="grid gap-3">
-            <input name="title" required maxLength={180} placeholder="What should you remember?" className="rounded-xl border border-[#e2e9e2] bg-white/80 px-3 py-3 text-sm outline-none focus:border-[#83ad91]"/>
-            <input name="dueAt" type="datetime-local" required className="rounded-xl border border-[#e2e9e2] bg-white/80 px-3 py-3 text-sm outline-none focus:border-[#83ad91]"/>
-            <div className="grid grid-cols-2 gap-3"><select name="category" className="rounded-xl border border-[#e2e9e2] bg-white px-3 py-3 text-xs"><option>Personal</option><option>Home</option><option>Finance</option><option>Health</option><option>Work</option></select><select name="priority" className="rounded-xl border border-[#e2e9e2] bg-white px-3 py-3 text-xs"><option value="normal">Normal priority</option><option value="high">High priority</option><option value="low">Low priority</option></select></div>
-            <button className="rounded-xl bg-[#234c3d] px-4 py-3 text-xs font-semibold text-white">Save reminder</button>
-          </form>
+          <ReminderForm/>
           <div className="mt-6 border-t border-[#e8ede8] pt-4"><h3 className="mb-3 text-xs font-semibold">Your reminders</h3>
             {reminders.length===0?<p className="text-xs text-[#9aa69e]">No reminders yet. Add one above.</p>:<div className="space-y-2">{reminders.map(item=><div key={item.id} className="flex items-center gap-3 rounded-xl bg-[#f7f9f6] px-3 py-3"><div className="min-w-0 flex-1"><p className={`text-xs font-semibold ${item.completed_at?"text-[#9aa69e] line-through":""}`}>{item.title}</p><p className="mt-1 text-[10px] text-[#9aa69e]">{new Date(item.due_at).toLocaleString("en-IN",{dateStyle:"medium",timeStyle:"short"})} · {item.category}</p></div>{!item.completed_at&&<form action={completeReminder}><input type="hidden" name="id" value={item.id}/><button className="rounded-full bg-[#e5f1e9] px-3 py-2 text-[10px] font-semibold text-[#315b46]">Done</button></form>}</div>)}</div>}
           </div>
