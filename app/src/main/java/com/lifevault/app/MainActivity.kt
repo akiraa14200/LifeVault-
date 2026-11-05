@@ -1,6 +1,11 @@
 package com.lifevault.app
 
 import android.os.Bundle
+import android.content.Context.SENSOR_SERVICE
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.Manifest
@@ -43,6 +48,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -576,6 +582,22 @@ private fun LiquidOverviewCard(
     comparisonText: String
 ) {
     val shape = RoundedCornerShape(24.dp)
+    val context = LocalContext.current
+    var tiltX by remember { mutableFloatStateOf(0f) }
+    DisposableEffect(context) {
+        val manager = context.getSystemService(SENSOR_SERVICE) as SensorManager
+        val accelerometer = manager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        val listener = object : SensorEventListener {
+            override fun onSensorChanged(event: SensorEvent) {
+                // Accelerometer gravity vector gives a stable left/right tilt signal.
+                val target = (event.values[0] / SensorManager.GRAVITY_EARTH).coerceIn(-0.65f, 0.65f)
+                tiltX = (tiltX * 0.82f + target * 0.18f).coerceIn(-0.65f, 0.65f)
+            }
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+        }
+        if (accelerometer != null) manager.registerListener(listener, accelerometer, SensorManager.SENSOR_DELAY_UI)
+        onDispose { manager.unregisterListener(listener) }
+    }
     val remainingRatio = if (income > 0L) (net.toFloat() / income.toFloat()).coerceIn(0f, 1f) else 0f
     val animatedLevel by animateFloatAsState(
         targetValue = remainingRatio,
@@ -618,7 +640,7 @@ private fun LiquidOverviewCard(
                         moveTo(0f, startY)
                         var x = 0f
                         while (x <= width) {
-                            val y = baseY + verticalOffset + sin((x / width * Math.PI * 2.0 + offset).toDouble()).toFloat() * amplitude
+                            val y = baseY + verticalOffset + tiltX * height * 0.055f * (x / width - 0.5f) + sin((x / width * Math.PI * 2.0 + offset + tiltX * 0.7f).toDouble()).toFloat() * amplitude
                             lineTo(x, y)
                             x += 5f
                         }
@@ -649,7 +671,7 @@ private fun LiquidOverviewCard(
                 val crest = Path().apply {
                     var x = 0f
                     while (x <= width) {
-                        val y = baseY + sin((x / width * Math.PI * 2.0 + phase).toDouble()).toFloat() * amplitude
+                        val y = baseY + tiltX * height * 0.055f * (x / width - 0.5f) + sin((x / width * Math.PI * 2.0 + phase + tiltX * 0.7f).toDouble()).toFloat() * amplitude
                         if (x == 0f) moveTo(x, y) else lineTo(x, y)
                         x += 5f
                     }
